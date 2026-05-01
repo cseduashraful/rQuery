@@ -1,0 +1,428 @@
+Project Specification: Solver-Critic Fine-Tuning Plan for DuckDB Predictive Agent
+
+1. Goal
+
+Build a self-improving training and evaluation loop for the DuckDB Predictive Agent, with the
+initial focus on improving the task planner.
+
+The system should:
+
+1. Run benchmark tasks end to end.
+2. Produce an initial task-planner output.
+3. Gather evidence from the database using the existing safe exploration system.
+4. Build a final prediction prompt.
+5. Produce a final prediction.
+6. Compare the prediction against ground truth.
+7. Use a critic to judge whether the final prompt contained enough information to recover the
+   ground truth.
+8. If the prompt was insufficient, request additional evidence types.
+9. Allow the solver or explorer to fetch that additional evidence.
+10. Rebuild the prompt and retry prediction.
+11. Store the full trajectory for later planner fine-tuning.
+
+The main training target in phase 1 is the task planner, not the final predictor.
+
+
+2. Core design principle
+
+Do not directly fine-tune the planner from final-task failure alone.
+
+Instead use this logic:
+
+- Wrong final answer does not always imply wrong planner.
+- The critic must distinguish planner failure from final predictor failure.
+- Planner updates should be driven by prompt sufficiency and evidence-gathering quality.
+
+
+3. Roles
+
+3.1 Solver
+
+The solver is the task planner.
+
+Responsibilities:
+
+- Convert the user question plus database memory into structured task JSON
+- Identify candidate tables
+- Identify needed information
+- Propose assumptions
+- Optionally revise the plan after critic feedback
+
+3.2 Explorer
+
+The explorer generates safe SQL based on the plan and any critic-requested evidence categories.
+
+Responsibilities:
+
+- Generate only SELECT/WITH queries
+- Gather initial evidence
+- Gather follow-up evidence after critic feedback
+- Respect all SQL safety constraints
+
+3.3 Prompt builder
+
+The prompt builder assembles the final evidence prompt for the final predictor.
+
+Responsibilities:
+
+- Normalize evidence
+- Deduplicate repeated facts
+- Integrate critic-requested evidence cleanly
+- Track provenance for evidence
+- Keep the final prompt compact enough for the model context window
+
+3.4 Final predictor
+
+The final predictor answers using the final prompt only.
+
+Responsibilities:
+
+- Produce structured prediction JSON
+- Use only the evidence provided
+- Avoid inventing unsupported facts
+
+3.5 Critic
+
+The critic inspects:
+
+- the final prompt
+- the final predictor output
+- the ground truth
+- optional execution trace metadata
+
+Responsibilities:
+
+- Decide whether the prompt was sufficient to recover the ground truth
+- Identify missing evidence categories
+- Separate planner responsibility from predictor responsibility
+- Suggest follow-up evidence requests
+- Produce structured feedback for online refinement and offline training
+
+
+4. Critic philosophy
+
+The critic must answer:
+
+"Was there enough information in the final prompt to allow a competent predictor to produce the
+ground-truth answer?"
+
+The critic must not answer only:
+
+"Was the final answer wrong?"
+
+This distinction is essential because:
+
+- insufficient prompt -> planner/explorer likely needs improvement
+- sufficient prompt but wrong answer -> final predictor likely needs improvement
+
+
+5. Online refinement loop
+
+For one benchmark task:
+
+1. Load database and ground-truth task.
+2. Run solver to produce initial task plan.
+3. Run explorer to gather initial evidence.
+4. Run prompt builder to build final prompt.
+5. Run final predictor to produce answer.
+6. Compare answer with ground truth using benchmark metric.
+7. Run critic on prompt, answer, and ground truth.
+8. If critic says prompt was insufficient:
+   - request additional evidence categories
+   - run explorer again to fetch more evidence
+   - rebuild prompt
+   - rerun final predictor
+9. Stop when:
+   - prompt is sufficient, or
+   - max refinement rounds reached, or
+   - no new evidence can be fetched safely
+10. Store full trajectory.
+
+
+6. Critic output schema
+
+The critic must return structured JSON.
+
+Example shape:
+
+{
+  "prompt_sufficient": false,
+  "planner_responsibility_score": 0.84,
+  "predictor_responsibility_score": 0.16,
+  "confidence_in_critique": "high",
+  "missing_information": [
+    "failed payments in the last 90 days",
+    "recent support complaints",
+    "subscription cancellation intent"
+  ],
+  "irrelevant_information": [
+    "product catalog attributes"
+  ],
+  "wrong_assumptions": [
+    "Assumed churn can be judged from usage only"
+  ],
+  "additional_evidence_requests": [
+    {
+      "evidence_type": "payment_failures_90d",
+      "reason": "Billing instability may explain the ground-truth outcome.",
+      "priority": "high",
+      "likely_tables": ["payments", "invoices"]
+    },
+    {
+      "evidence_type": "recent_support_complaints",
+      "reason": "Dissatisfaction signals are missing from the current prompt.",
+      "priority": "medium",
+      "likely_tables": ["support_tickets"]
+    }
+  ],
+  "comments": [
+    "The final prompt did not include enough risk signals to justify the ground-truth label."
+  ]
+}
+
+
+7. Prompt builder requirements
+
+The prompt builder must become modular.
+
+It should support evidence sections such as:
+
+- database summary
+- task summary
+- relevant tables
+- relationships
+- aggregate facts
+- candidate entities
+- temporal signals
+- payment signals
+- support signals
+- critic-requested evidence
+- limitations
+- queries run
+
+The prompt builder must:
+
+- preserve structure even when new evidence types appear later
+- avoid dumping raw query output unnecessarily
+- summarize new evidence into a reusable canonical format
+- label evidence provenance:
+  - initial exploration
+  - critic-guided refinement
+
+
+8. Explorer behavior after critic feedback
+
+The critic should request evidence types, not SQL.
+
+The explorer should translate an evidence request into safe SQL.
+
+Example:
+
+Critic request:
+
+- evidence_type = payment_failures_90d
+
+Explorer responsibility:
+
+- identify likely relevant tables from schema memory
+- generate safe aggregate and row-level SQL if needed
+- summarize the result
+- return structured evidence
+
+This preserves the system safety pattern:
+
+critic requests
+solver/explorer plans
+backend validates
+backend executes
+
+
+9. Trajectory logging
+
+Every refinement trajectory should be stored for offline analysis and training.
+
+Store:
+
+- benchmark task id
+- database id
+- user question
+- initial planner output
+- initial exploration queries
+- initial evidence packet
+- initial final prompt
+- initial prediction
+- benchmark score
+- critic output
+- follow-up evidence requests
+- follow-up queries
+- refined evidence packet
+- refined final prompt
+- refined prediction
+- final benchmark score
+- stop reason
+
+
+10. Fine-tuning target
+
+Phase 1 fine-tuning target:
+
+- task planner only
+
+Reason:
+
+- planner output is structured
+- planner errors are easier to supervise than full final predictions
+- critic feedback can be converted into planner-improvement signals
+
+
+11. Training data creation strategy
+
+The system should automatically create planner training data from stored trajectories.
+
+11.1 Positive examples
+
+Use planner outputs from runs where:
+
+- prompt was judged sufficient, and
+- benchmark score was strong, or
+- critic-guided refinement converged successfully
+
+11.2 Negative or weak examples
+
+Use planner outputs from runs where:
+
+- prompt was judged insufficient, or
+- critic had high planner responsibility score
+
+11.3 Derived improved targets
+
+The system may create revised planner targets by combining:
+
+- original user question
+- schema summary
+- critic missing-information list
+- critic wrong-assumptions list
+- best-performing refined trajectory
+
+This revised target becomes a better planner-training label.
+
+
+12. Fine-tuning methods
+
+Recommended order:
+
+12.1 Supervised fine-tuning
+
+Train planner on:
+
+- successful planner outputs
+- critic-improved planner targets
+
+12.2 Preference optimization
+
+For the same input, compare:
+
+- planner output A
+- planner output B
+
+Prefer the one that led to:
+
+- more sufficient prompts
+- better benchmark score
+- fewer refinement rounds
+
+12.3 Reward-based optimization
+
+Later, use a reward signal composed of:
+
+- final benchmark score
+- prompt sufficiency
+- planner responsibility score
+- query efficiency
+
+
+13. Metrics
+
+The system should measure:
+
+- final task accuracy against benchmark ground truth
+- prompt sufficiency rate
+- average refinement rounds per task
+- planner responsibility score
+- evidence-request fulfillment rate
+- query count per task
+- token count of final prompt
+- success rate before refinement
+- success rate after refinement
+
+
+14. Safety constraints
+
+This training and refinement loop must preserve all runtime safety rules.
+
+- Critic cannot execute SQL
+- Critic cannot bypass schema memory
+- Critic cannot request raw filesystem access
+- Critic cannot directly modify the database
+- Explorer must still pass through SQL validation
+- Follow-up refinement queries must still be logged
+
+
+15. API and module implications
+
+Suggested new modules:
+
+- agent/critic.py
+- agent/prompt_builder.py
+- training/trajectory_store.py
+- training/planner_dataset_builder.py
+- training/evaluator.py
+- training/fine_tune_runner.py
+
+Suggested new core functions:
+
+critic_judge_prompt_sufficiency(prompt, answer, ground_truth) -> CriticReport
+translate_evidence_requests_to_queries(task, evidence_requests, memory) -> list[SQLQuery]
+integrate_additional_evidence(packet, new_evidence) -> EvidencePacket
+build_planner_training_examples(trajectories) -> list[TrainingExample]
+
+
+16. Benchmark scope
+
+Use multiple relational benchmark tasks and databases.
+
+The implementation should support:
+
+- multiple tasks per database
+- multiple databases per benchmark suite
+- task-specific ground-truth evaluators
+
+REL-style benchmark workloads are a good fit because they naturally exercise:
+
+- table selection
+- relationship reasoning
+- temporal reasoning
+- evidence insufficiency detection
+
+
+17. Acceptance criteria
+
+The fine-tuning plan implementation is successful if:
+
+1. The system can run benchmark tasks end to end and store full trajectories.
+2. The critic can distinguish insufficient prompt from predictor reasoning failure.
+3. The critic can request additional evidence categories in structured form.
+4. The explorer can fetch critic-requested evidence through safe SQL.
+5. The prompt builder can integrate new evidence sections without breaking prompt structure.
+6. The system can rerun prediction after refinement.
+7. Planner training examples can be generated automatically from trajectories.
+8. The phase 1 trainer can fine-tune only the planner model.
+
+
+18. Most important design decision
+
+Do not train the planner from answer correctness alone.
+
+Train the planner from evidence sufficiency signals.
+
+That is the central idea behind this fine-tuning plan.

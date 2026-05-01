@@ -14,5 +14,6 @@ __pycache__/
 *.duckdb.wal
 storage/
 uploads/
+output/
 dist/
 build/

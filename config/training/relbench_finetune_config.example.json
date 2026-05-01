@@ -1,0 +1,34 @@
+{
+  "datasets": [
+    {
+      "name": "ecommerce_demo",
+      "database_path": "./sample_data/ecommerce.duckdb",
+      "display_name": "Ecommerce Demo",
+      "tasks": [
+        {
+          "name": "customer_payment_outcome",
+          "question_template": "Based only on information available before {cutoff_time}, what is the likely payment outcome for customer {customer_id}?",
+          "train_split_path": "./backend/tests/fixtures/finetune_train_split.jsonl",
+          "entity_id_column": "customer_id",
+          "entity_lookup_column": "customer_id",
+          "ground_truth_column": "ground_truth",
+          "cutoff_time_column": "cutoff_time",
+          "candidate_tables": ["customers", "payments", "orders"],
+          "expected_evidence": ["payment", "orders", "customer"]
+        }
+      ]
+    }
+  ],
+  "loop": {
+    "random_seed": 7,
+    "episodes": 5,
+    "max_refinement_rounds": 2,
+    "trainer_user_id": "trainer_user"
+  },
+  "trainer": {
+    "mode": "jsonl_export",
+    "output_dir": "./output/training",
+    "min_examples_before_emit": 1,
+    "hook_command": null
+  }
+}

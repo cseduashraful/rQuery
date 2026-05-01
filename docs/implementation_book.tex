@@ -206,6 +206,74 @@ augmented with:
 \item reusable prediction recipes
 \end{itemize}
 
+\section{Critic-Guided Iterative Evidence Acquisition}
+One important extension is to add a critic that inspects the final prediction prompt, the final
+predictor output, and the ground truth for benchmarked tasks. The critic should answer a narrower
+question than ``was the final answer wrong?'': it should decide whether the final prompt contained
+enough information for the predictor to recover the ground truth.
+
+This design is useful because it creates a cleaner signal for improving the planner. If the prompt
+was insufficient, the planner and exploration stages likely failed to retrieve enough evidence. If
+the prompt was sufficient but the answer was still wrong, the final predictor is the more likely
+failure point.
+
+\subsection*{Core Loop}
+\begin{enumerate}
+\item the solver or task planner creates an initial predictive plan
+\item the explorer gathers evidence from the database through safe SQL
+\item the prompt builder composes the final evidence prompt
+\item the final predictor produces an answer
+\item the critic checks prompt sufficiency against ground truth
+\item if the prompt is insufficient, the critic requests additional evidence types
+\item the solver or explorer fetches follow-up evidence
+\item the prompt builder integrates the new evidence and rebuilds the prompt
+\item the final predictor retries
+\end{enumerate}
+
+\subsection*{Why The Critic Should Request Evidence Types}
+The critic should request missing evidence categories rather than raw SQL. For example, it may ask
+for recent support complaints, failed payments in a time window, or inactivity-based recency
+signals. Query generation should still remain the responsibility of the solver or explorer so the
+safety boundary stays intact.
+
+\subsection*{Prompt Builder Requirements}
+The prompt builder should not assume a fixed evidence shape. It should support:
+
+\begin{itemize}
+\item modular evidence sections
+\item dynamic insertion of critic-requested evidence
+\item deduplication of repeated facts
+\item prioritization of high-value evidence under context limits
+\item provenance tags indicating whether evidence was part of the initial plan or a critic-guided refinement
+\end{itemize}
+
+A practical evidence layout can include:
+
+\begin{itemize}
+\item core facts
+\item candidate entities
+\item temporal signals
+\item payment signals
+\item support or friction signals
+\item critic-requested evidence
+\item limitations
+\item queries run
+\end{itemize}
+
+\subsection*{Training Signal For Planner Improvement}
+This loop also creates strong training data for the planner. Each trajectory can store:
+
+\begin{itemize}
+\item the original planner output
+\item the critic sufficiency judgment
+\item the critic-requested additional evidence types
+\item the refined planner or exploration behavior
+\item the final benchmark score against ground truth
+\end{itemize}
+
+These traces can support supervised fine-tuning, preference optimization, or reward-based training
+for the planner without relying on fully manual labels.
+
 \section{Profiler Enrichment}
 Useful profiler upgrades include:
 
@@ -247,6 +315,7 @@ are:
 \item full Alembic migration setup
 \item stronger sandboxing for production deployment
 \item richer sample datasets and integration fixtures
+\item critic-guided online refinement and planner improvement loops
 \end{itemize}
 
 \chapter{Conclusion}
@@ -255,4 +324,3 @@ separate concerns cleanly enough that profiling, safety, memory, and model orche
 independently while preserving the core product contract.
 
 \end{document}
-

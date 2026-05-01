@@ -1,0 +1,2 @@
+{"customer_id":"1","cutoff_time":"2024-04-05 00:00:00","ground_truth":"paid","customer_name":"Alice"}
+{"customer_id":"2","cutoff_time":"2024-04-07 00:00:00","ground_truth":"failed","customer_name":"Bob"}

@@ -160,6 +160,12 @@ Generate sample data:
 python scripts/create_sample_dbs.py
 ```
 
+Run the planner fine-tuning loop:
+
+```bash
+python scripts/run_finetune_loop.py --config config/training/relbench_finetune_config.example.json
+```
+
 ## Practical Recommendation
 
 Use `environment.yml` as the default shared team environment.
@@ -167,4 +173,3 @@ Use `environment.yml` as the default shared team environment.
 When you later add a real local LLM backend such as a Llama 70B path, create one additional file
 such as `environment.local-llm.yml` instead of overloading the baseline environment. That keeps the
 OpenAI-backed MVP lightweight while still making heavy local inference setups reproducible.
-
