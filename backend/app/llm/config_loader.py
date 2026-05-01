@@ -52,6 +52,9 @@ class ProviderConfig(BaseModel):
         finetuned_candidate = finetuned_root / model_ref
         if (finetuned_candidate / "config.json").exists():
             return str(finetuned_candidate.resolve())
+        return self.resolve_local_base_path(model_ref)
+
+    def resolve_local_base_path(self, model_ref: str) -> str:
         if model_ref in self.model_paths:
             return self.model_paths[model_ref]
         if self.model_path:

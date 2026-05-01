@@ -66,7 +66,24 @@ class PlannerTrainerConfig(BaseModel):
     output_dir: str = "./output/training"
     min_examples_before_emit: int = 1
     hook_command: Optional[str] = None
-    base_model_name: str = "shared-base-model"
+    base_model_name: str = "8b"
+    finetuned_model_root: str = "./finetuned_llm"
+    num_train_epochs: float = 1.0
+    per_device_train_batch_size: int = 1
+    gradient_accumulation_steps: int = 4
+    learning_rate: float = 2e-4
+    warmup_steps: int = 0
+    logging_steps: int = 10
+    save_steps: int = 50
+    max_seq_length: int = 2048
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    target_modules: list[str] = Field(
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    )
+    max_training_minutes: Optional[int] = 60
+    resume_from_checkpoint: bool = True
     adapters: dict[str, RoleAdapterConfig] = Field(
         default_factory=lambda: {
             "task_planner": RoleAdapterConfig(adapter_name="task-planner-adapter"),

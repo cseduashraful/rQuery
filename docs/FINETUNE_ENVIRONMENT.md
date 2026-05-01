@@ -214,6 +214,18 @@ The current repository already supports:
 What it does not yet do is run the actual adapter training itself. That cluster-side step is still
 meant to be connected through your future trainer hook.
 
+Update:
+
+The repository now includes a real adapter trainer implementation based on
+`transformers + peft`. The main entrypoint is:
+
+```bash
+python scripts/run_adapter_training.py --config config/training/relbench_finetune_config.example.json --role task_planner
+```
+
+The built-in trainer is still intended primarily for a cluster or heavy fine-tuning environment,
+not the lightweight app/runtime environment.
+
 ## Practical Recommendation
 
 Use:

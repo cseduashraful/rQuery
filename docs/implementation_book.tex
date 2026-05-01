@@ -340,6 +340,40 @@ These files are intended for later cluster-side training jobs and should include
 \item benchmark score
 \end{itemize}
 
+\subsection*{Implemented Training Backend}
+The repository now includes a concrete adapter-training path built around
+\texttt{transformers + peft}. This means the project no longer stops at exporting JSONL training
+artifacts. It can now:
+
+\begin{itemize}
+\item read a role-specific JSONL file
+\item resolve the shared base model path from the local provider configuration
+\item initialize or resume a LoRA/PEFT adapter
+\item train the selected role adapter
+\item checkpoint progress periodically
+\item save the adapter into \texttt{finetuned\_llm/<size>/<role>}
+\end{itemize}
+
+This backend is especially aligned with the intended workflow of bounded training windows such as
+``train for one hour, save, and continue later.''
+
+\subsection*{Time-Budgeted Resume-Friendly Training}
+The trainer configuration supports a practical set of controls:
+
+\begin{itemize}
+\item training epochs
+\item batch size
+\item gradient accumulation
+\item learning rate
+\item LoRA rank, alpha, and dropout
+\item target modules
+\item maximum training minutes
+\item resume from checkpoint
+\end{itemize}
+
+This means one role adapter can be trained incrementally across multiple cluster runs while the
+shared base model remains unchanged.
+
 \subsection*{Operational Consequence}
 At inference time, the ideal production setup is:
 
@@ -414,6 +448,21 @@ streamlit run frontend/streamlit_app.py
 pytest
 \end{lstlisting}
 
+\section{Adapter Training}
+The repository now exposes two complementary entrypoints:
+
+\begin{lstlisting}[style=code,language=bash]
+python scripts/run_finetune_loop.py --config config/training/relbench_finetune_config.example.json
+\end{lstlisting}
+
+This command generates trajectories and role-specific training examples.
+
+\begin{lstlisting}[style=code,language=bash]
+python scripts/run_adapter_training.py --config config/training/relbench_finetune_config.example.json --role task_planner
+\end{lstlisting}
+
+This command performs actual adapter fine-tuning for the selected role using the exported examples.
+
 \section{Configuration}
 Copy the example config file and adapt it:
 
@@ -433,7 +482,7 @@ are:
 \item stronger sandboxing for production deployment
 \item richer sample datasets and integration fixtures
 \item critic-guided online refinement and planner improvement loops
-\item cluster-side adapter training and adapter switching at inference time
+\item richer evaluation and regression tooling around trained adapters
 \end{itemize}
 
 \chapter{Conclusion}

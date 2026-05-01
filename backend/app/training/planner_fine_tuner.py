@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from backend.app.training.adapter_trainer import AdapterTrainer
 from backend.app.training.config import PlannerTrainerConfig
 
 
@@ -13,12 +14,25 @@ class PlannerFineTuner:
         self.trainer_config = trainer_config
         self.output_dir = Path(trainer_config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.adapter_trainer = AdapterTrainer(trainer_config)
 
     def maybe_run_hook(self, role_counts: dict[str, int]) -> dict[str, Any]:
         active_roles = [role for role, count in role_counts.items() if count > 0]
         active_adapters = {
             role: self.trainer_config.adapter_for_role(role).adapter_name for role in active_roles
         }
+        if self.trainer_config.mode == "peft_lora":
+            training_results = []
+            for role in active_roles:
+                training_results.append(self.adapter_trainer.train_role(role))
+            return {
+                "trainer_mode": self.trainer_config.mode,
+                "hook_executed": False,
+                "base_model_name": self.trainer_config.base_model_name,
+                "active_roles": active_roles,
+                "active_adapters": active_adapters,
+                "training_results": training_results,
+            }
         if not self.trainer_config.hook_command:
             return {
                 "trainer_mode": self.trainer_config.mode,

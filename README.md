@@ -56,10 +56,12 @@ planner from benchmark trajectories.
 Main pieces:
 
 - `backend/app/training/`: benchmark loader, execution engine, evaluator, trajectory store, and planner dataset builder
+- `backend/app/training/adapter_trainer.py`: actual PEFT/LoRA adapter trainer
 - `backend/app/agent/critic.py`: prompt-sufficiency critic
 - `backend/app/agent/prompt_builder.py`: modular prompt integration for initial and critic-requested evidence
 - `config/training/relbench_finetune_config.example.json`: example dataset/task configuration
 - `scripts/run_finetune_loop.py`: loop runner
+- `scripts/run_adapter_training.py`: actual adapter training entrypoint
 
 Run it with:
 
@@ -77,6 +79,15 @@ The loop:
 6. gathers pre-cutoff evidence
 7. evaluates the final answer against ground truth
 8. stores trajectories and role-specific adapter training examples in `output/training/`
+
+To run actual adapter training after examples have been generated:
+
+```bash
+python scripts/run_adapter_training.py --config config/training/relbench_finetune_config.example.json --role task_planner
+```
+
+Set `trainer.mode` to `peft_lora` if you want the fine-tune loop to trigger adapter training after
+trajectory generation.
 
 ## Model Configuration
 
