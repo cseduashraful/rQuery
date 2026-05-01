@@ -98,9 +98,14 @@ The fine-tuning loop also supports adapter-oriented training with:
 For local models, the repo now supports parameter-size aliases such as `1b`, `3b`, and `8b`.
 When the provider is `local`, inference resolves models like this:
 
-1. check `finetuned_llm/<size>` first
-2. if that folder exists and is non-empty, use it
-3. otherwise fall back to the original base path from `config/llm_config.json`
+1. use the configured base path for the selected size alias
+2. check `finetuned_llm/<size>/<role>` for a role adapter
+3. if that adapter folder exists and is non-empty, attach it to the shared loaded base model
+4. if `finetuned_llm/<size>/config.json` exists, it can also act as a merged fine-tuned model copy
+5. otherwise fall back to the original base path only
+
+If multiple roles resolve to the same local model path, the runtime now loads that local model once
+and reuses the same in-memory instance across planner, explorer, predictor, and critic calls.
 
 ## Running With Your Preferred LLM Config
 

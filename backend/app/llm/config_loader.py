@@ -50,7 +50,7 @@ class ProviderConfig(BaseModel):
     def resolve_local_model_path(self, model_ref: str) -> str:
         finetuned_root = Path(self.finetuned_model_root or "./finetuned_llm")
         finetuned_candidate = finetuned_root / model_ref
-        if finetuned_candidate.exists() and any(finetuned_candidate.iterdir()):
+        if (finetuned_candidate / "config.json").exists():
             return str(finetuned_candidate.resolve())
         if model_ref in self.model_paths:
             return self.model_paths[model_ref]
@@ -58,11 +58,24 @@ class ProviderConfig(BaseModel):
             return self.model_path
         return model_ref
 
+    def resolve_local_adapter_path(self, model_ref: str, role: str) -> Optional[str]:
+        finetuned_root = Path(self.finetuned_model_root or "./finetuned_llm")
+        adapter_candidate = finetuned_root / model_ref / role
+        if adapter_candidate.exists() and any(adapter_candidate.iterdir()):
+            return str(adapter_candidate.resolve())
+        return None
+
     def resolved_model_for_role(self, role: str, provider_name: str) -> str:
         model_ref = self.model_for_role(role)
         if provider_name == "local":
             return self.resolve_local_model_path(model_ref)
         return model_ref
+
+    def resolved_adapter_for_role(self, role: str, provider_name: str) -> Optional[str]:
+        model_ref = self.model_for_role(role)
+        if provider_name == "local":
+            return self.resolve_local_adapter_path(model_ref, role)
+        return None
 
 
 class LLMConfig(BaseModel):

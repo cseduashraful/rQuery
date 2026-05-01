@@ -155,13 +155,30 @@ Inside this repository, the runtime also reserves:
 ```text
 finetuned_llm/
   1b/
+    task_planner/
+    sql_explorer/
+    final_predictor/
+    critic/
   3b/
+    task_planner/
+    sql_explorer/
+    final_predictor/
+    critic/
   8b/
+    task_planner/
+    sql_explorer/
+    final_predictor/
+    critic/
   70b/
 ```
 
-The local provider resolves a parameter size alias by checking `finetuned_llm/<size>` first. If no
-fine-tuned copy exists there, it falls back to the configured base model path.
+The local provider resolves a parameter size alias by using the configured base path first and then
+checking for a role adapter in `finetuned_llm/<size>/<role>`. If a role adapter is present, it is
+attached to the already loaded base model for that role. If `finetuned_llm/<size>/config.json`
+exists, that directory can also be treated as a merged fine-tuned model copy.
+
+If multiple runtime roles resolve to the same local path, the intended runtime behavior is to load
+that model once and reuse the same loaded instance across steps.
 
 ## Time-Budgeted Fine-Tuning
 

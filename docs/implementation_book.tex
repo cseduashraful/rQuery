@@ -353,6 +353,44 @@ At inference time, the ideal production setup is:
 
 This preserves modular behavior without paying the full cost of loading multiple unrelated models.
 
+\subsection*{Local Runtime Resolution}
+The local runtime now supports a concrete resolution rule for parameter-size aliases such as
+\texttt{1b}, \texttt{3b}, \texttt{8b}, and later \texttt{70b}. For a local role call:
+
+\begin{enumerate}
+\item resolve the role to a size alias such as \texttt{8b}
+\item map that alias to the configured base model path
+\item check whether a role adapter exists under \texttt{finetuned\_llm/<size>/<role>}
+\item if present, attach that adapter to the already loaded base model
+\item if \texttt{finetuned\_llm/<size>/config.json} exists, allow that directory to act as a merged fine-tuned model copy
+\end{enumerate}
+
+This gives the runtime two compatible deployment styles:
+
+\begin{itemize}
+\item base model plus role adapters
+\item merged fine-tuned model copy
+\end{itemize}
+
+\subsection*{Single In-Memory Base Load}
+The most important runtime property is that the local system should not load the same base model
+multiple times when multiple roles share the same underlying model path. Instead:
+
+\begin{itemize}
+\item cache one loaded base model per resolved base path
+\item reuse that in-memory base model across planner, explorer, predictor, and critic steps
+\item attach or switch role adapters on top of that shared base instance
+\end{itemize}
+
+This keeps the architecture aligned with the intended operational goal:
+
+\begin{quote}
+one shared local base model in memory, multiple role-specific adapters layered on top
+\end{quote}
+
+The practical consequence is that if all four roles resolve to the same \texttt{8b} base path, the
+runtime should load that base model once and then reuse it throughout the full agent pipeline.
+
 \section{Profiler Enrichment}
 Useful profiler upgrades include:
 

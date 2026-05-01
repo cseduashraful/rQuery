@@ -8,6 +8,7 @@ from openai import OpenAI
 
 from backend.app.config import get_settings
 from backend.app.llm.config_loader import ProviderConfig, load_llm_config
+from backend.app.llm.local_runtime import LocalRuntimeManager
 
 
 class LLMClient:
@@ -24,6 +25,11 @@ class LLMClient:
         provider = self.provider(provider_key)
         return provider.resolved_model_for_role(task_type, provider_key)
 
+    def resolved_adapter_for_role(self, task_type: str, provider_name: Optional[str] = None) -> Optional[str]:
+        provider_key = provider_name or self.config.default_provider
+        provider = self.provider(provider_key)
+        return provider.resolved_adapter_for_role(task_type, provider_key)
+
     def generate_json(
         self,
         task_type: str,
@@ -38,9 +44,10 @@ class LLMClient:
         model_name = self.resolved_model_for_role(task_type, provider_key)
 
         if provider_key == "local":
-            raise NotImplementedError(
-                "Local LLM execution is configuration-ready but not yet implemented."
-            )
+            runtime = LocalRuntimeManager.get_model(model_name)
+            adapter_path = self.resolved_adapter_for_role(task_type, provider_key)
+            local_prompt = self._build_local_json_prompt(task_type, prompt, schema)
+            return runtime.generate_json(local_prompt, adapter_path=adapter_path, role=task_type)
 
         client = OpenAI(api_key=self.settings.openai_api_key)
         response = client.responses.create(
@@ -56,3 +63,12 @@ class LLMClient:
         )
         text = response.output_text
         return json.loads(text)
+
+    def _build_local_json_prompt(self, task_type: str, prompt: str, schema: dict[str, Any]) -> str:
+        return (
+            f"You are handling the role: {task_type}.\n"
+            "Return one valid JSON object only.\n"
+            "Do not add prose, markdown, or explanations.\n\n"
+            f"JSON SCHEMA:\n{json.dumps(schema, indent=2)}\n\n"
+            f"TASK INPUT:\n{prompt}\n"
+        )
