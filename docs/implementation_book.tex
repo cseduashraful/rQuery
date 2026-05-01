@@ -1,0 +1,258 @@
+\documentclass[11pt]{book}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{xcolor}
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible
+}
+\title{DuckDB Predictive Agent\\Implementation and Extension Guide}
+\author{Codex MVP Scaffold}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\chapter{Purpose}
+This document explains the implementation scaffold for the DuckDB Predictive Agent MVP. It is
+written as a practical build book: what exists, why it is structured this way, how to extend it,
+and where the current boundaries are.
+
+\chapter{System Overview}
+The product is a safe predictive reasoning system over uploaded DuckDB databases. The core safety
+contract is:
+
+\begin{quote}
+LLM proposes. Backend validates. Backend executes. Backend summarizes. LLM reasons.
+\end{quote}
+
+The scaffold currently includes a heuristic fallback path so the product remains runnable even
+before live LLM integration is enabled.
+
+\section{Top-Level Modules}
+\begin{longtable}{|p{0.24\textwidth}|p{0.68\textwidth}|}
+\hline
+Module & Responsibility \\
+\hline
+\texttt{backend/app/api} & FastAPI routes for uploads, connections, profiles, predictions, and logs \\
+\hline
+\texttt{backend/app/db} & SQLAlchemy metadata models and session lifecycle \\
+\hline
+\texttt{backend/app/duckdb\_tools} & Read-only connector, profiler, and SQL safety layer \\
+\hline
+\texttt{backend/app/memory} & Database-scoped semantic memory persistence and retrieval \\
+\hline
+\texttt{backend/app/agent} & Planning, exploration, evidence, prompts, and prediction boundaries \\
+\hline
+\texttt{backend/app/llm} & Provider configuration and hosted/local backend switching layer \\
+\hline
+\texttt{backend/app/services} & Application orchestration for uploads, databases, and predictions \\
+\hline
+\texttt{frontend} & Streamlit demo UI \\
+\hline
+\end{longtable}
+
+\chapter{Backend Architecture}
+\section{Configuration}
+Runtime settings live in \texttt{backend/app/config.py}. Model selection lives in a separate LLM
+config file so business logic does not hard-code model names. This is the main extension seam for:
+
+\begin{itemize}
+\item switching from OpenAI to a local runtime
+\item assigning different models to planning, exploration, and final prediction
+\item adding fallback and summary-specific models
+\end{itemize}
+
+\section{Metadata Store}
+SQLite is used for MVP speed and simplicity, but the application layer is written with SQLAlchemy
+so a later Postgres migration is straightforward. The core metadata entities are:
+
+\begin{itemize}
+\item users
+\item database\_connections
+\item table\_profiles
+\item column\_profiles
+\item relationship\_profiles
+\item semantic\_memories
+\item prediction\_runs
+\item query\_audit\_logs
+\end{itemize}
+
+\section{Upload and Connection Flow}
+The MVP upload flow accepts a DuckDB file, stores it under managed app storage, and registers a
+database connection record. This avoids unsafe arbitrary path access. Profiling runs immediately
+after connection creation.
+
+\section{Profiling}
+The profiler performs deterministic inspection:
+
+\begin{itemize}
+\item table discovery
+\item column discovery
+\item row counts
+\item null and distinct counts
+\item numeric, temporal, and categorical summaries
+\item primary key heuristics
+\item relationship heuristics
+\item sample rows
+\end{itemize}
+
+This deterministic profile is the base truth layer. LLM summaries should only consume this
+controlled representation, not unrestricted raw database contents.
+
+\section{SQL Safety}
+The SQL safety layer is deliberately isolated in \texttt{sql\_safety.py}. It combines:
+
+\begin{itemize}
+\item parser-based validation through \texttt{sqlglot}
+\item a secondary forbidden-token gate
+\item automatic row limiting
+\item process-based execution timeout boundaries
+\end{itemize}
+
+This module is one of the most important future hardening surfaces. A production system should
+extend it with stronger schema-aware validation and tighter worker isolation.
+
+\chapter{Prediction Pipeline}
+\section{Current Runtime Path}
+The implementation includes both the intended modular LLM boundaries and a runnable heuristic
+fallback. Today, the prediction service:
+
+\begin{enumerate}
+\item loads the profiled database summary and memory
+\item derives a heuristic predictive task when live LLMs are disabled
+\item generates safe exploratory queries
+\item validates and executes them through the safety layer
+\item records query audits
+\item builds an evidence packet
+\item returns a heuristic prediction summary
+\end{enumerate}
+
+\section{LLM Boundaries}
+The future LLM-backed path should activate these components:
+
+\begin{itemize}
+\item \texttt{TaskPlanner}
+\item \texttt{SQLExplorer}
+\item \texttt{FinalPredictor}
+\end{itemize}
+
+Each component expects structured JSON outputs and should remain independently testable.
+
+\section{Evidence Packet}
+The evidence accumulator centralizes the packet that will ultimately be shown to users and passed
+into the final predictor. This object is intentionally stable because many future capabilities
+depend on it:
+
+\begin{itemize}
+\item confidence scoring
+\item explanation generation
+\item UI evidence rendering
+\item offline evaluation
+\item tracing and debugging
+\end{itemize}
+
+\chapter{Frontend}
+The Streamlit frontend is intentionally simple. Its job is not product polish; it is to make the
+workflow observable while backend behavior is being validated. It supports:
+
+\begin{itemize}
+\item file upload
+\item database connection
+\item profile display
+\item predictive question submission
+\item answer display
+\item query-log display
+\end{itemize}
+
+\chapter{Extension Opportunities}
+\section{Hosted and Local LLMs}
+The next major extension is to implement the local provider backend. The configuration layer already
+anticipates a future \texttt{model\_path} field for local models such as a Llama 70B deployment.
+Reasonable backend options include:
+
+\begin{itemize}
+\item \texttt{llama.cpp}
+\item \texttt{vLLM}
+\item an internal REST wrapper around a local inference server
+\end{itemize}
+
+\section{Confidence Engine}
+Today confidence is heuristic. A stronger implementation should compute confidence from evidence
+quality signals such as:
+
+\begin{itemize}
+\item table coverage
+\item key target-signal availability
+\item temporal coverage quality
+\item successful query ratio
+\item entity-level support strength
+\end{itemize}
+
+\section{Query Planning}
+The current heuristic query generator is intentionally conservative. It should later be replaced or
+augmented with:
+
+\begin{itemize}
+\item planner-guided query selection
+\item schema-aware join planning
+\item result summarization compression
+\item reusable prediction recipes
+\end{itemize}
+
+\section{Profiler Enrichment}
+Useful profiler upgrades include:
+
+\begin{itemize}
+\item better foreign-key inference
+\item column semantic typing
+\item table role classification
+\item anomaly and sparsity detection
+\item incremental profile refresh support
+\end{itemize}
+
+\chapter{Operational Guidance}
+\section{Running the Stack}
+\begin{lstlisting}[style=code,language=bash]
+uvicorn backend.app.main:app --reload
+streamlit run frontend/streamlit_app.py
+\end{lstlisting}
+
+\section{Testing}
+\begin{lstlisting}[style=code,language=bash]
+pytest
+\end{lstlisting}
+
+\section{Configuration}
+Copy the example config file and adapt it:
+
+\begin{lstlisting}[style=code]
+config/llm_config.example.json -> config/llm_config.json
+\end{lstlisting}
+
+\chapter{Known Gaps}
+The scaffold is intentionally substantial but not feature-complete. The main remaining work items
+are:
+
+\begin{itemize}
+\item live LLM execution path wiring into the prediction service
+\item richer ranked entity generation
+\item deletion endpoints and cascade handling
+\item full Alembic migration setup
+\item stronger sandboxing for production deployment
+\item richer sample datasets and integration fixtures
+\end{itemize}
+
+\chapter{Conclusion}
+This codebase is now structured to support incremental implementation without rework. The modules
+separate concerns cleanly enough that profiling, safety, memory, and model orchestration can evolve
+independently while preserving the core product contract.
+
+\end{document}
+

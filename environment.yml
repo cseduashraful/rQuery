@@ -1,0 +1,26 @@
+name: duckdb-predictive-agent
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - pip
+  - sqlite
+  - pytest>=8.3
+  - requests>=2.32
+  - pytorch
+  - cpuonly
+  - pip:
+      - alembic>=1.14.0
+      - duckdb>=1.1.3
+      - fastapi>=0.115.0
+      - httpx>=0.28.0
+      - openai>=1.54.0
+      - pydantic>=2.10.0
+      - pydantic-settings>=2.6.0
+      - python-multipart>=0.0.17
+      - sqlalchemy>=2.0.36
+      - sqlglot>=25.34.1
+      - streamlit>=1.40.0
+      - uvicorn>=0.32.0
+

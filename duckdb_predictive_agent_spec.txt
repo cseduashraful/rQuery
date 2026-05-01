@@ -1,0 +1,1814 @@
+Project Specification: Codex-Like Predictive Agent for DuckDB
+
+1. Product goal
+
+Build an agent that lets a user connect a DuckDB database and ask predictive questions in natural language.
+
+The system should:
+
+1. Connect to a user-provided DuckDB database.
+2. Profile and understand the database once.
+3. Maintain separate knowledge for each connected database.
+4. Let the user ask predictive questions.
+5. Explore the database using safe SQL queries.
+6. Retrieve relevant facts, aggregates, examples, and trends.
+7. Build a compact evidence packet.
+8. Ask an LLM to produce a prediction grounded in that evidence.
+9. Return the prediction, reasoning, confidence, and limitations.
+
+The system is not a full AutoML platform in the MVP. It is a Codex-like data reasoning agent that can inspect a database, run safe queries, and prepare useful context for an LLM.
+
+
+2. MVP scope
+
+2.1 In scope
+
+The MVP should support:
+
+- DuckDB database connection
+- Multiple databases per user
+- One isolated memory workspace per database
+- One-time database profiling
+- Incremental profile refresh
+- Schema, column, and relationship inference
+- Natural-language predictive questions
+- Agentic SQL exploration loop
+- Read-only SQL execution
+- Evidence packet generation
+- LLM-based prediction from evidence
+- Prediction explanations and confidence
+- Audit log of SQL queries and agent steps
+
+2.2 Out of scope for MVP
+
+Do not build these first:
+
+- Full supervised ML training pipeline
+- Long-running autonomous jobs
+- Direct writeback to DuckDB
+- Cross-database joins
+- Fine-tuned models
+- Complex vector database infrastructure
+- Multi-agent swarm architecture
+- Real-time streaming predictions
+- Automatic feature store
+
+These can be added later.
+
+
+3. System architecture
+
+Frontend UI
+    |
+    v
+API Backend - FastAPI
+    |
+    |-----------------------------|-----------------------------|
+    v                             v                             v
+DuckDB Connector          Metadata Store                  LLM Service
+Read-only SQL             Postgres / SQLite               Planner + Answer
+    |                             |                             |
+    v                             v                             v
+User DuckDB File          DB Semantic Memory              Prediction Prompt
+
+
+4. Main backend modules
+
+4.1 Database Connection Manager
+
+Responsible for:
+
+- Registering new DuckDB databases
+- Assigning each database a stable database_id
+- Opening read-only DuckDB connections
+- Preventing cross-user access
+- Computing schema fingerprints
+- Tracking profile status
+
+Main functions:
+
+connect_database(user_id, db_uri, display_name) -> database_id
+get_database(database_id) -> DatabaseConnection
+compute_database_fingerprint(database_id) -> str
+set_active_database(user_id, database_id)
+
+
+4.2 Database Profiler
+
+Runs one-time or incremental analysis.
+
+It extracts:
+
+- Tables
+- Columns
+- Data types
+- Row counts
+- Null rates
+- Distinct counts
+- Numeric min/max/avg/stddev
+- Date min/max
+- Top categorical values
+- Sample rows
+- Possible primary keys
+- Possible foreign keys
+- Table purpose guesses
+- Column meaning guesses
+
+Main functions:
+
+profile_database(database_id) -> DatabaseProfile
+profile_table(database_id, table_name) -> TableProfile
+profile_column(database_id, table_name, column_name) -> ColumnProfile
+infer_relationships(database_id) -> list[RelationshipProfile]
+generate_semantic_summary(database_id) -> str
+
+
+4.3 Semantic Memory Store
+
+Stores database-specific knowledge.
+
+Each database has isolated memory:
+
+- schema profile
+- table profiles
+- column profiles
+- relationship map
+- semantic summary
+- useful query history
+- prior prediction recipes
+- user-approved assumptions
+
+Main functions:
+
+save_memory(database_id, memory_type, content)
+search_memory(database_id, user_query) -> list[MemoryItem]
+load_database_summary(database_id) -> str
+load_relevant_table_profiles(database_id, table_names) -> list[TableProfile]
+
+For MVP, use simple keyword search over stored summaries. Add embeddings later.
+
+
+4.4 SQL Safety Layer
+
+Every generated query must pass through this layer before execution.
+
+Allowed:
+
+- SELECT
+- WITH
+
+Forbidden:
+
+- INSERT
+- UPDATE
+- DELETE
+- DROP
+- ALTER
+- CREATE
+- TRUNCATE
+- COPY
+- EXPORT
+- ATTACH
+- INSTALL
+- LOAD
+- PRAGMA that can mutate state
+
+Also enforce:
+
+- Query timeout
+- Row limit
+- Database isolation
+- Audit logging
+- No arbitrary file access
+- No network access
+
+Main functions:
+
+validate_readonly_sql(sql: str) -> None
+apply_row_limit(sql: str, max_rows: int) -> str
+execute_safe_query(database_id, sql, max_rows=1000) -> QueryResult
+
+
+4.5 Predictive Query Agent
+
+This is the core Codex-like loop.
+
+Given a user question, it:
+
+1. Understands the prediction task.
+2. Retrieves database memory.
+3. Plans what information it needs.
+4. Generates exploratory SQL.
+5. Executes safe SQL.
+6. Observes result.
+7. Decides whether more evidence is needed.
+8. Builds final evidence packet.
+9. Calls LLM for prediction.
+10. Returns answer.
+
+Main functions:
+
+answer_predictive_query(user_id, database_id, question) -> PredictionAnswer
+plan_predictive_task(question, db_summary) -> PredictiveTask
+generate_exploration_queries(task, memory) -> list[SQLQuery]
+run_exploration_loop(task, queries) -> EvidencePacket
+build_final_prediction_prompt(packet) -> str
+generate_prediction(packet) -> PredictionAnswer
+
+
+5. Data model
+
+Use Postgres in production. SQLite is fine for local MVP.
+
+5.1 users
+
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    email TEXT,
+    created_at TIMESTAMP NOT NULL
+);
+
+5.2 database_connections
+
+CREATE TABLE database_connections (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    db_type TEXT NOT NULL,
+    db_uri TEXT NOT NULL,
+    fingerprint TEXT,
+    status TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    last_profiled_at TIMESTAMP
+);
+
+Example statuses:
+
+- connected
+- profiling
+- ready
+- failed
+- stale
+
+5.3 table_profiles
+
+CREATE TABLE table_profiles (
+    id TEXT PRIMARY KEY,
+    database_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    row_count BIGINT,
+    primary_key_guess TEXT,
+    semantic_description TEXT,
+    profile_json JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+5.4 column_profiles
+
+CREATE TABLE column_profiles (
+    id TEXT PRIMARY KEY,
+    database_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    data_type TEXT,
+    null_rate DOUBLE PRECISION,
+    distinct_count BIGINT,
+    semantic_description TEXT,
+    profile_json JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+5.5 relationship_profiles
+
+CREATE TABLE relationship_profiles (
+    id TEXT PRIMARY KEY,
+    database_id TEXT NOT NULL,
+    from_table TEXT NOT NULL,
+    from_column TEXT NOT NULL,
+    to_table TEXT NOT NULL,
+    to_column TEXT NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    evidence_json JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+5.6 semantic_memories
+
+CREATE TABLE semantic_memories (
+    id TEXT PRIMARY KEY,
+    database_id TEXT NOT NULL,
+    memory_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata_json JSON,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+Memory types:
+
+- database_summary
+- table_summary
+- column_summary
+- relationship_summary
+- prediction_recipe
+- user_correction
+- query_pattern
+
+5.7 prediction_runs
+
+CREATE TABLE prediction_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    database_id TEXT NOT NULL,
+    user_question TEXT NOT NULL,
+    task_json JSON NOT NULL,
+    evidence_packet_json JSON NOT NULL,
+    final_prompt TEXT NOT NULL,
+    answer_json JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+5.8 query_audit_logs
+
+CREATE TABLE query_audit_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    database_id TEXT NOT NULL,
+    prediction_run_id TEXT,
+    sql TEXT NOT NULL,
+    purpose TEXT,
+    row_count INTEGER,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    created_at TIMESTAMP NOT NULL
+);
+
+
+6. Core objects
+
+6.1 Predictive task object
+
+{
+  "question": "Which customers are likely to churn next month?",
+  "intent": "predictive_query",
+  "prediction_type": "risk_ranking",
+  "entity": {
+    "name": "customer",
+    "candidate_table": "customers",
+    "candidate_id_column": "customer_id"
+  },
+  "target": {
+    "name": "churn",
+    "description": "customer likely to stop using or buying",
+    "time_horizon": "next month"
+  },
+  "needed_information": [
+    "recent usage",
+    "purchase history",
+    "subscription status",
+    "payment failures",
+    "support tickets"
+  ],
+  "candidate_tables": [
+    "customers",
+    "usage_events",
+    "orders",
+    "subscriptions",
+    "payments",
+    "support_tickets"
+  ],
+  "prediction_method": "heuristic_llm_grounded_prediction"
+}
+
+6.2 Evidence packet object
+
+This is the most important internal object.
+
+{
+  "user_question": "Which customers are likely to churn next month?",
+  "database_id": "db_abc123",
+  "database_summary": "This appears to be a SaaS subscription database...",
+  "task": {
+    "entity": "customer",
+    "target": "churn",
+    "prediction_type": "risk_ranking"
+  },
+  "relevant_tables": [
+    {
+      "table": "customers",
+      "meaning": "Represents customers",
+      "row_count": 12000,
+      "important_columns": ["customer_id", "signup_date", "plan", "status"]
+    },
+    {
+      "table": "usage_events",
+      "meaning": "Represents product usage activity",
+      "row_count": 900000,
+      "important_columns": ["customer_id", "event_time", "event_type"]
+    }
+  ],
+  "relationships": [
+    {
+      "relationship": "usage_events.customer_id -> customers.customer_id",
+      "confidence": 0.98
+    }
+  ],
+  "facts": {
+    "active_customers": 12000,
+    "customers_with_no_usage_30d": 1840,
+    "customers_with_failed_payment_90d": 312
+  },
+  "candidate_entities": [
+    {
+      "customer_id": "C1029",
+      "usage_events_30d": 0,
+      "usage_events_90d": 2,
+      "days_since_last_usage": 61,
+      "failed_payments_90d": 2,
+      "support_tickets_90d": 1,
+      "simple_risk_score": 0.82
+    }
+  ],
+  "limitations": [
+    "No explicit churn label was found.",
+    "Prediction is based on proxy signals and historical behavior."
+  ],
+  "queries_run": [
+    {
+      "purpose": "Find customer activity recency",
+      "sql": "SELECT customer_id, MAX(event_time) ..."
+    }
+  ]
+}
+
+6.3 Prediction answer object
+
+{
+  "answer_type": "heuristic_prediction",
+  "summary": "The highest churn-risk customers are C1029, C8841, and C3380.",
+  "predictions": [
+    {
+      "entity_id": "C1029",
+      "risk_level": "high",
+      "confidence": "medium",
+      "reasoning": [
+        "No usage in 61 days",
+        "2 failed payments in the last 90 days",
+        "1 recent support ticket"
+      ],
+      "supporting_facts": {
+        "days_since_last_usage": 61,
+        "failed_payments_90d": 2,
+        "support_tickets_90d": 1
+      }
+    }
+  ],
+  "global_reasoning": [
+    "Recent inactivity is the strongest signal available.",
+    "Payment failures increase risk.",
+    "Support friction may indicate dissatisfaction."
+  ],
+  "limitations": [
+    "No explicit historical churn label was available.",
+    "This is not a trained churn model."
+  ],
+  "recommended_next_steps": [
+    "Confirm the business definition of churn.",
+    "Add historical churn labels if available.",
+    "Compare these predictions against actual outcomes next month."
+  ]
+}
+
+
+7. Agent workflow
+
+7.1 Database onboarding workflow
+
+User connects DuckDB
+    -> Create database_connections row
+    -> Open read-only DuckDB connection
+    -> List tables
+    -> Profile each table
+    -> Profile each column
+    -> Infer relationships
+    -> Generate semantic summaries
+    -> Store memory
+    -> Mark database ready
+
+API endpoint:
+
+POST /databases/connect
+
+Request:
+
+{
+  "display_name": "Ecommerce DB",
+  "db_uri": "/secure/path/ecommerce.duckdb"
+}
+
+Response:
+
+{
+  "database_id": "db_abc123",
+  "status": "profiling"
+}
+
+7.2 Predictive query workflow
+
+User asks question
+    -> Load active database workspace
+    -> Retrieve database memory
+    -> LLM creates predictive task object
+    -> Agent generates first exploration queries
+    -> SQL validator approves queries
+    -> DuckDB executes queries
+    -> Agent observes result summaries
+    -> Agent decides if more queries are needed
+    -> Build evidence packet
+    -> LLM generates prediction from packet
+    -> Store prediction run
+    -> Return answer
+
+API endpoint:
+
+POST /databases/{database_id}/predict
+
+Request:
+
+{
+  "question": "Which customers are likely to churn next month?"
+}
+
+Response:
+
+{
+  "prediction_run_id": "run_123",
+  "answer": {
+    "answer_type": "heuristic_prediction",
+    "summary": "The highest-risk customers are...",
+    "predictions": []
+  }
+}
+
+
+8. Agent loop design
+
+The exploration agent should have a maximum number of iterations.
+
+Recommended MVP limits:
+
+- Max iterations: 5
+- Max SQL queries per prediction: 10
+- Max rows per query result: 1000
+- Max rows sent to LLM: 100
+- Query timeout: 10 seconds
+
+Agent loop pseudocode:
+
+def answer_predictive_query(user_id: str, database_id: str, question: str):
+    db_summary = load_database_summary(database_id)
+    memories = search_memory(database_id, question)
+
+    task = llm_plan_predictive_task(
+        question=question,
+        db_summary=db_summary,
+        memories=memories
+    )
+
+    evidence = EvidencePacket(
+        user_question=question,
+        database_id=database_id,
+        task=task,
+        database_summary=db_summary
+    )
+
+    for step in range(MAX_AGENT_STEPS):
+        query_plan = llm_generate_next_queries(
+            task=task,
+            evidence_so_far=evidence,
+            memories=memories
+        )
+
+        if query_plan["done"]:
+            break
+
+        for query in query_plan["queries"]:
+            validate_readonly_sql(query["sql"])
+            safe_sql = apply_row_limit(query["sql"], max_rows=1000)
+
+            result = execute_safe_query(database_id, safe_sql)
+
+            summarized_result = summarize_query_result(result)
+
+            evidence.add_query_result(
+                purpose=query["purpose"],
+                sql=safe_sql,
+                result_summary=summarized_result
+            )
+
+    final_packet = build_evidence_packet(evidence)
+
+    answer = llm_generate_prediction(final_packet)
+
+    save_prediction_run(
+        user_id=user_id,
+        database_id=database_id,
+        question=question,
+        task=task,
+        evidence_packet=final_packet,
+        answer=answer
+    )
+
+    return answer
+
+
+9. SQL exploration strategy
+
+For a predictive query, the agent should usually run queries in this order.
+
+Step 1: Understand relevant tables
+
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'main';
+
+If memory already exists, use memory first.
+
+Step 2: Inspect relevant columns
+
+DESCRIBE customers;
+DESCRIBE orders;
+DESCRIBE usage_events;
+
+Step 3: Check date ranges
+
+SELECT
+  MIN(event_time) AS min_event_time,
+  MAX(event_time) AS max_event_time,
+  COUNT(*) AS row_count
+FROM usage_events;
+
+Step 4: Build aggregate facts
+
+Example for churn:
+
+WITH last_usage AS (
+  SELECT
+    customer_id,
+    MAX(event_time) AS last_usage_time,
+    COUNT(*) FILTER (
+      WHERE event_time >= CURRENT_DATE - INTERVAL '30 days'
+    ) AS usage_30d,
+    COUNT(*) FILTER (
+      WHERE event_time >= CURRENT_DATE - INTERVAL '90 days'
+    ) AS usage_90d
+  FROM usage_events
+  GROUP BY customer_id
+)
+SELECT
+  COUNT(*) AS customers_seen,
+  COUNT(*) FILTER (WHERE usage_30d = 0) AS no_usage_30d,
+  COUNT(*) FILTER (WHERE usage_90d = 0) AS no_usage_90d
+FROM last_usage;
+
+Step 5: Build candidate entities
+
+WITH last_usage AS (
+  SELECT
+    customer_id,
+    MAX(event_time) AS last_usage_time,
+    COUNT(*) FILTER (
+      WHERE event_time >= CURRENT_DATE - INTERVAL '30 days'
+    ) AS usage_30d,
+    COUNT(*) FILTER (
+      WHERE event_time >= CURRENT_DATE - INTERVAL '90 days'
+    ) AS usage_90d
+  FROM usage_events
+  GROUP BY customer_id
+),
+
+payment_risk AS (
+  SELECT
+    customer_id,
+    COUNT(*) FILTER (
+      WHERE status = 'failed'
+        AND payment_date >= CURRENT_DATE - INTERVAL '90 days'
+    ) AS failed_payments_90d
+  FROM payments
+  GROUP BY customer_id
+)
+
+SELECT
+  c.customer_id,
+  c.plan,
+  c.status,
+  u.usage_30d,
+  u.usage_90d,
+  DATE_DIFF('day', u.last_usage_time, CURRENT_DATE) AS days_since_last_usage,
+  COALESCE(p.failed_payments_90d, 0) AS failed_payments_90d
+FROM customers c
+LEFT JOIN last_usage u ON c.customer_id = u.customer_id
+LEFT JOIN payment_risk p ON c.customer_id = p.customer_id
+WHERE c.status = 'active'
+ORDER BY
+  CASE WHEN u.usage_30d = 0 THEN 1 ELSE 0 END DESC,
+  COALESCE(p.failed_payments_90d, 0) DESC,
+  days_since_last_usage DESC
+LIMIT 50;
+
+
+10. LLM prompts
+
+10.1 Predictive task planning prompt
+
+You are a data agent that plans predictive analysis over a DuckDB database.
+
+Given:
+- User question
+- Database summary
+- Relevant table memories
+
+Return a JSON object describing the predictive task.
+
+Rules:
+- Do not invent tables or columns.
+- If the target is ambiguous, make the best reasonable assumption and record it.
+- Identify the likely entity being predicted.
+- Identify the likely target outcome.
+- Identify what information is needed from the database.
+- Identify candidate tables if available.
+- Return only valid JSON.
+
+Expected output:
+
+{
+  "intent": "predictive_query",
+  "prediction_type": "risk_ranking",
+  "entity": "customer",
+  "target": "churn",
+  "time_horizon": "next month",
+  "needed_information": [
+    "recent activity",
+    "payment issues",
+    "support interactions"
+  ],
+  "candidate_tables": [
+    "customers",
+    "usage_events",
+    "payments",
+    "support_tickets"
+  ],
+  "assumptions": [
+    "Churn means a customer is likely to stop using the product or cancel."
+  ]
+}
+
+10.2 Exploration query generation prompt
+
+You are a DuckDB SQL exploration agent.
+
+Your job is to gather evidence for a predictive question.
+
+Given:
+- Predictive task
+- Database schema memory
+- Evidence gathered so far
+
+Generate the next safe SELECT queries needed to gather evidence.
+
+Rules:
+- Only generate SELECT or WITH queries.
+- Do not generate INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, COPY, EXPORT, ATTACH, INSTALL, LOAD, or PRAGMA.
+- Use only known tables and columns.
+- Prefer aggregate queries before row-level queries.
+- Return a maximum of 3 queries.
+- Each query must have a purpose.
+- Return only valid JSON.
+
+Expected output:
+
+{
+  "done": false,
+  "queries": [
+    {
+      "purpose": "Measure recent customer activity and inactivity",
+      "sql": "WITH last_usage AS (...) SELECT ..."
+    }
+  ]
+}
+
+10.3 Final prediction prompt
+
+You are a predictive analyst.
+
+You are given an evidence packet retrieved from a DuckDB database.
+
+Your task:
+Answer the user's predictive question using only the evidence provided.
+
+Rules:
+- Use only the evidence packet.
+- Do not invent numbers, rows, columns, or tables.
+- Separate facts from assumptions.
+- If there is no explicit historical target label, call the answer a heuristic prediction.
+- If there is enough historical target data, call it an evidence-grounded prediction.
+- Provide confidence: low, medium, or high.
+- Explain the main drivers.
+- Mention limitations.
+- Return structured JSON.
+
+Expected output:
+
+{
+  "answer_type": "heuristic_prediction",
+  "summary": "The customers most likely to churn are...",
+  "predictions": [
+    {
+      "entity_id": "C1029",
+      "prediction": "high churn risk",
+      "confidence": "medium",
+      "reasoning": [
+        "No usage in 61 days",
+        "2 failed payments in 90 days"
+      ]
+    }
+  ],
+  "limitations": [
+    "No explicit churn label was found."
+  ]
+}
+
+
+11. Implementation plan
+
+11.1 Phase 0: Project setup
+
+Deliverables:
+
+- Backend repo
+- FastAPI app
+- Metadata database
+- DuckDB connector
+- Basic frontend or API-only testing
+
+Suggested structure:
+
+predictive-agent/
+  backend/
+    app/
+      main.py
+      config.py
+      db/
+        metadata.py
+        models.py
+      duckdb_tools/
+        connector.py
+        profiler.py
+        sql_safety.py
+      agent/
+        planner.py
+        explorer.py
+        evidence.py
+        predictor.py
+        prompts.py
+      memory/
+        store.py
+        retriever.py
+      api/
+        databases.py
+        predictions.py
+    tests/
+  frontend/
+  README.md
+
+11.2 Phase 1: DuckDB connection and profiling
+
+Build:
+
+- Upload/connect DuckDB
+- Store database connection metadata
+- List tables
+- Describe tables
+- Profile row counts
+- Profile columns
+- Store profiles
+
+Acceptance criteria:
+
+Given a DuckDB database, the backend can register it, list all tables, profile all columns, and store the result under one database_id.
+
+Example endpoint:
+
+POST /databases/connect
+GET /databases/{database_id}/profile
+
+11.3 Phase 2: Semantic summary generation
+
+Build:
+
+- Generate table-level summaries
+- Generate column-level summaries
+- Guess primary keys
+- Guess relationships
+- Store semantic memory
+
+Acceptance criteria:
+
+Given a profiled database, the system can produce a readable summary:
+
+- what each table likely represents
+- important columns
+- likely relationships
+- useful predictive signals
+
+Example output:
+
+This database appears to represent ecommerce activity.
+customers contains customer attributes.
+orders contains purchases and joins to customers through customer_id.
+order_items links orders to products.
+
+11.4 Phase 3: Safe SQL execution
+
+Build:
+
+- SQL validator
+- Query timeout
+- Row limit
+- Query audit logging
+- Read-only DuckDB connection
+
+Acceptance criteria:
+
+SELECT queries run successfully.
+DROP/DELETE/UPDATE/INSERT queries are rejected.
+Every query is logged.
+Large results are limited.
+
+11.5 Phase 4: Predictive task planner
+
+Build:
+
+- LLM call to convert user question into predictive task JSON
+- Use database summary as context
+- Return entity, target, candidate tables, needed information
+
+Acceptance criteria:
+
+For:
+
+Which customers are likely to churn next month?
+
+System returns:
+
+{
+  "prediction_type": "risk_ranking",
+  "entity": "customer",
+  "target": "churn",
+  "candidate_tables": ["customers", "usage_events", "subscriptions"]
+}
+
+11.6 Phase 5: Agentic SQL exploration loop
+
+Build:
+
+- Generate exploratory SQL
+- Validate SQL
+- Execute SQL
+- Summarize result
+- Repeat up to 5 steps
+- Store intermediate evidence
+
+Acceptance criteria:
+
+Given a predictive question, the system can autonomously run safe queries to gather evidence.
+
+Example:
+
+Question: Which customers are likely to churn?
+
+Agent runs:
+
+1. Find active customers
+2. Find usage recency
+3. Find failed payments
+4. Find support tickets
+5. Build candidate risk table
+
+11.7 Phase 6: Evidence packet builder
+
+Build:
+
+- Combine task JSON
+- Relevant schema memory
+- Query results
+- Aggregate facts
+- Candidate rows
+- Limitations
+
+Acceptance criteria:
+
+The system produces one compact JSON packet that can be sent to the LLM.
+
+The packet should be:
+
+- small enough for context window
+- factual
+- structured
+- not a raw database dump
+- includes limitations
+
+11.8 Phase 7: Final LLM prediction
+
+Build:
+
+- Final prediction prompt
+- Structured JSON output
+- Explanation and confidence
+- Store prediction run
+
+Acceptance criteria:
+
+The answer clearly says:
+
+- prediction
+- reasoning
+- confidence
+- evidence used
+- limitations
+
+And it does not invent unsupported facts.
+
+11.9 Phase 8: Frontend MVP
+
+Build simple UI:
+
+- Connect database
+- Show profile status
+- Show database summary
+- Ask predictive question
+- Show answer
+- Show evidence used
+- Show SQL queries run
+
+Recommended MVP UI:
+
+Left sidebar:
+- Connected databases
+- Active database selector
+
+Main panel:
+- Database summary
+- Question input
+- Prediction answer
+- Evidence tab
+- SQL log tab
+
+
+12. Recommended implementation timeline
+
+Week 1: Core backend
+
+- FastAPI setup
+- Metadata database
+- DuckDB connector
+- Database registration
+- Table/column profiler
+
+Week 2: Memory and summaries
+
+- Profile storage
+- Relationship inference
+- Semantic summaries
+- Basic memory retrieval
+
+Week 3: SQL safety and agent planner
+
+- SQL validator
+- Safe executor
+- Query audit logs
+- Predictive task planner
+
+Week 4: Exploration loop and evidence packet
+
+- Agent loop
+- Query generation
+- Evidence builder
+- Result summarization
+
+Week 5: Final prediction and UI
+
+- Final prediction prompt
+- Prediction run storage
+- Basic frontend
+- Evidence/SQL trace display
+
+Week 6: Testing and hardening
+
+- Security tests
+- SQL injection tests
+- Multi-database isolation tests
+- Evaluation on sample DuckDB databases
+- Error handling and UX polish
+
+
+13. Security requirements
+
+These are mandatory.
+
+13.1 SQL safety
+
+- Only SELECT/WITH allowed
+- Reject mutating SQL
+- Reject file/network related commands
+- Enforce query timeout
+- Enforce result row limit
+- Audit all SQL
+
+13.2 Database isolation
+
+- Every database has database_id
+- Every database belongs to one user_id
+- Every agent call includes user_id and database_id
+- Memory lookup is scoped by database_id
+- Query execution is scoped by database_id
+
+13.3 LLM safety
+
+- LLM cannot directly execute SQL
+- LLM proposes SQL
+- Backend validates SQL
+- Backend executes SQL
+- LLM receives summarized results
+
+
+14. Testing plan
+
+14.1 Unit tests
+
+- SQL validator rejects forbidden commands
+- Profiler correctly detects tables and columns
+- Relationship inference works on sample DB
+- Evidence packet excludes excessive rows
+- Memory retrieval is database-scoped
+
+14.2 Integration tests
+
+- Connect DuckDB
+- Profile database
+- Ask churn-like question
+- Agent generates SQL
+- SQL executes
+- Evidence packet is built
+- Prediction answer is returned
+
+14.3 Security tests
+
+Try to make the system run:
+
+DROP TABLE customers;
+DELETE FROM users;
+COPY customers TO '/tmp/customers.csv';
+ATTACH 'other.db';
+INSTALL httpfs;
+LOAD httpfs;
+
+All should be rejected.
+
+14.4 Multi-database isolation test
+
+1. User connects ecommerce.duckdb.
+2. User connects finance.duckdb.
+3. Ask invoice question against ecommerce DB.
+4. System should not use finance memory unless selected.
+5. Ask customer churn question against finance DB.
+6. System should not use ecommerce memory unless selected.
+
+
+15. MVP success criteria
+
+The MVP is successful if:
+
+1. A user can connect multiple DuckDB databases.
+2. Each database gets its own profile and memory.
+3. The system can summarize each database correctly.
+4. The user can ask a predictive question.
+5. The agent can run safe SQL to gather relevant evidence.
+6. The final answer is grounded in retrieved database facts.
+7. The answer clearly distinguishes facts, assumptions, and prediction.
+8. The SQL trace is visible and auditable.
+
+
+16. The most important design decision
+
+Keep the LLM out of direct execution.
+
+Use this pattern:
+
+LLM proposes
+Backend validates
+Backend executes
+Backend summarizes
+LLM reasons
+
+Do not use this pattern:
+
+LLM directly controls database
+
+Your product should feel like:
+
+Codex for DuckDB predictive reasoning
+
+But the safe version is:
+
+Agent explores the database through controlled read-only tools,
+builds an evidence packet,
+then the LLM predicts from that evidence.
+
+That is concrete, buildable, and aligned with the target.
+
+
+17. MVP implementation decisions
+
+This section locks the MVP decisions needed to start implementation.
+If any earlier section conflicts with this one, this section takes precedence.
+
+
+17.1 LLM provider and model choice
+
+Decision:
+Use the OpenAI API first, with structured JSON outputs.
+LLM selection must be configurable rather than hard-coded.
+
+Recommended setup:
+
+- Primary model: GPT-4.1 or GPT-4.1-mini for planning and exploration
+- Final reasoning model: GPT-4.1 or GPT-5.5-class model if available in the stack
+- Structured output format: JSON Schema / structured outputs
+- Fallback: one cheaper model fallback for non-critical summary generation
+
+The MVP should use three LLM call types:
+
+- task_planner
+- sql_explorer
+- final_predictor
+
+Each LLM call should require valid JSON. Do not parse free-form prose.
+
+Fallback policy:
+
+- If task planning fails, retry once with the same model
+- If SQL generation fails, retry once with a stricter prompt
+- If final prediction fails, retry once
+- If the second attempt fails, return a structured error to the user
+
+LLM configuration requirements:
+
+- Add a dedicated LLM config file for model/provider selection
+- The config must allow separate model choices for task_planner, sql_explorer, final_predictor, and optional summary generation
+- The config must support both hosted API models and local LLM backends
+- The config must allow a future local model path to be added later, for example a Llama 70B path
+- The app should load LLM settings from configuration rather than embedding model names directly in business logic
+
+Recommended config shape:
+
+{
+  "default_provider": "openai",
+  "providers": {
+    "openai": {
+      "api_key_env": "OPENAI_API_KEY",
+      "task_planner_model": "gpt-4.1-mini",
+      "sql_explorer_model": "gpt-4.1-mini",
+      "final_predictor_model": "gpt-4.1"
+    },
+    "local": {
+      "enabled": false,
+      "backend": "llama_cpp_or_vllm",
+      "task_planner_model": "local-planner",
+      "sql_explorer_model": "local-sql",
+      "final_predictor_model": "local-predictor",
+      "model_path": ""
+    }
+  }
+}
+
+Notes:
+
+- OpenAI remains the default MVP provider
+- Local LLM support should be designed into the configuration layer now
+- The concrete local model path can be filled in later when available
+
+
+17.2 Auth model
+
+Decision:
+Use a single-user/dev shortcut first, but design the API as if multi-user auth exists.
+
+Every request should still carry:
+
+- user_id
+- database_id
+
+For local MVP:
+
+user_id = "dev_user"
+
+Recommended request pattern:
+
+POST /databases/{database_id}/predict
+X-User-Id: dev_user
+
+In production, replace this with JWT or session-based auth.
+
+
+17.3 DuckDB connection contract
+
+Decision:
+Support local uploaded DuckDB files only for MVP.
+
+Allowed:
+
+- User uploads a .duckdb file
+- Backend stores it in a per-user managed storage directory
+- Backend opens it read-only
+
+Blocked for MVP:
+
+- Arbitrary local file paths from user input
+- Remote URLs
+- S3/object-store-backed files
+- DuckDB extensions that enable network or filesystem behavior
+- ATTACH to other databases
+
+The connection contract should look like:
+
+{
+  "display_name": "Ecommerce Demo",
+  "upload_id": "uploaded_file_123"
+}
+
+It should not look like:
+
+{
+  "db_uri": "/some/user/provided/path/file.duckdb"
+}
+
+Reason:
+Users should not be able to make the backend read arbitrary paths.
+
+
+17.4 Metadata store choice
+
+Decision:
+Use SQLite first for MVP.
+
+Reason:
+
+- Faster local setup
+- Easier tests
+- No external dependency
+- Good enough for single-user/dev MVP
+
+Recommended approach:
+
+- Local MVP: SQLite
+- Production: Postgres
+- ORM and migrations: SQLAlchemy + Alembic
+
+Do not hard-code SQLite-specific behavior into the app layer.
+
+
+17.5 Database refresh behavior
+
+Decision:
+Manual refresh only, with lightweight fingerprint checks on major actions.
+
+Behavior on upload/connect:
+
+- Profile immediately
+
+Behavior on /predict:
+
+- Check stored fingerprint metadata
+- If fingerprint appears stale, warn but do not auto-refresh
+
+Behavior on user action:
+
+POST /databases/{database_id}/refresh
+
+This triggers re-profiling.
+
+MVP should not auto-refresh before every prediction because profiling may be slow and unpredictable.
+
+Recommended database status values:
+
+- ready
+- profiling
+- stale
+- failed
+
+If stale, the product should say:
+
+"This database may have changed since it was last profiled. Predictions will use the existing profile unless you refresh."
+
+
+17.6 Frontend scope
+
+Decision:
+Build API-first, plus a minimal Streamlit UI for demo and testing.
+Do not build a polished Next.js frontend yet.
+
+MVP UI should support:
+
+- Upload DuckDB
+- Show profiling status
+- Show database summary
+- Ask predictive question
+- Show answer
+- Show SQL/evidence trace
+
+Recommended stack:
+
+- Backend: FastAPI
+- Demo UI: Streamlit
+
+Reason:
+This lets you validate the agent before investing in product UI.
+
+
+17.7 Prediction output shape
+
+Decision:
+The /predict endpoint should always return both structured results and a narrative summary.
+
+Response shape:
+
+{
+  "prediction_run_id": "run_123",
+  "answer_type": "heuristic_prediction",
+  "summary": "The highest-risk customers are C1029, C8841, and C3380.",
+  "ranked_entities": [
+    {
+      "entity_id": "C1029",
+      "rank": 1,
+      "prediction": "high churn risk",
+      "confidence": "medium",
+      "reasoning": [
+        "No usage in 61 days",
+        "2 failed payments in 90 days"
+      ],
+      "supporting_facts": {}
+    }
+  ],
+  "narrative_answer": "Based on the retrieved usage and payment evidence...",
+  "limitations": [],
+  "evidence_packet": {},
+  "queries_run": []
+}
+
+This gives the frontend flexibility.
+
+
+17.8 Confidence policy
+
+Decision:
+Use deterministic confidence rules first, not just LLM judgment.
+
+MVP confidence policy:
+
+High confidence:
+
+- Relevant tables found
+- Entity table identified
+- Multiple strong signals retrieved
+- Historical target or proxy target exists
+- Candidate rows have clear evidence
+
+Medium confidence:
+
+- Relevant tables found
+- No explicit label, but strong proxy signals exist
+- Query results are complete enough
+
+Low confidence:
+
+- Missing key tables
+- No clear entity
+- No clear time column
+- Sparse data
+- Prediction depends mostly on assumptions
+
+The LLM may suggest confidence, but the backend should constrain it using evidence quality.
+
+
+17.9 Ambiguity handling
+
+Decision:
+Make assumptions explicitly by default. Ask clarifying questions only when the query cannot be answered safely.
+
+For MVP:
+
+If mildly ambiguous:
+
+- Proceed
+- State assumptions clearly
+
+If severely ambiguous:
+
+- Return clarification_required
+
+Example of mild ambiguity:
+
+"Which customers might churn?"
+
+Proceed with assumption:
+
+"Assumption: churn means likely inactivity or cancellation risk based on recent usage, payment, and support signals."
+
+Example of severe ambiguity:
+
+"Predict performance."
+
+Return:
+
+{
+  "status": "clarification_required",
+  "questions": [
+    "What entity should be predicted: customers, products, orders, invoices, or users?",
+    "What outcome do you mean by performance?"
+  ]
+}
+
+
+17.10 Active database behavior
+
+Decision:
+Every prediction request must explicitly include database_id.
+Do not rely on hidden backend active database state for MVP.
+
+Good:
+
+POST /databases/db_abc123/predict
+
+Avoid:
+
+POST /predict
+
+The frontend can maintain a selected database, but the backend should require explicit database_id.
+
+Reason:
+This prevents accidental cross-database use.
+
+
+17.11 Summary generation method
+
+Decision:
+Use hybrid summaries.
+
+First, generate deterministic rule-based summaries:
+
+- Table names
+- Column names
+- Row counts
+- Key guesses
+- Relationship guesses
+- Date ranges
+- Basic stats
+
+Then generate an LLM semantic summary from that deterministic profile.
+
+The LLM should not inspect raw full data. It should receive controlled table samples and stats.
+
+Summary pipeline:
+
+DuckDB profiling -> deterministic profile JSON -> LLM semantic summary -> stored memory
+
+
+17.12 Query timeout implementation
+
+Decision:
+Enforce app-level timeout around DuckDB execution.
+
+Recommended behavior:
+
+- Run each query in a worker thread or worker process
+- Set max query runtime, for example 10 seconds
+- If timeout is exceeded, cancel or terminate the worker
+- Mark query as failed in the audit log
+
+Best practical MVP approach:
+Use process-level isolation for query execution if possible.
+
+Reason:
+Thread-only cancellation can be unreliable. A separate worker process gives you a harder kill boundary.
+
+
+17.13 SQL validation strictness
+
+Decision:
+Use both parser-based validation and a strict token denylist.
+
+Recommended stack:
+
+- Primary validator: sqlglot parser
+- Secondary validator: uppercase token denylist
+
+Allowed statement types:
+
+- SELECT
+- WITH
+
+Validation requirements:
+
+- SQL must parse successfully
+- All statements must be SELECT-like
+- Multiple statements should be rejected unless explicitly supported
+- Forbidden tokens must be rejected
+- Unknown tables and columns should be rejected where possible
+- LIMIT should be enforced externally
+
+Do not rely only on regex.
+
+
+17.14 File access sandboxing
+
+Decision:
+Run DuckDB query execution in a constrained worker process or container.
+
+For local MVP, minimum requirements:
+
+- Store uploaded DBs in app-managed directory
+- Open databases read-only
+- Reject ATTACH, COPY, INSTALL, LOAD, and similar commands
+- Do not accept arbitrary db_uri paths
+
+For serious deployment:
+
+- Execute queries in an isolated container
+- Mount only that user’s database file read-only
+- Disable network
+- Use no writable filesystem except temporary storage
+- Enforce CPU and memory limits
+
+Reason:
+DuckDB is powerful, so treat it like code execution, not just SQL execution.
+
+
+17.15 Audit retention
+
+Decision:
+For MVP, keep audit logs and prediction runs indefinitely, but implement delete endpoints now.
+
+MVP behavior:
+
+- Store all query logs
+- Store all prediction runs
+- Allow user/database deletion to cascade-delete associated logs
+
+Later:
+
+- Configurable retention policy
+- Export logs
+- Admin audit view
+
+Add endpoints:
+
+- DELETE /databases/{database_id}
+- DELETE /prediction-runs/{run_id}
+
+
+17.16 Error response shapes
+
+Use consistent error objects.
+
+Example:
+
+{
+  "error": {
+    "code": "PROFILE_FAILED",
+    "message": "Database profiling failed.",
+    "details": {
+      "database_id": "db_abc123",
+      "reason": "Could not read table orders"
+    }
+  }
+}
+
+Recommended error codes:
+
+- DATABASE_NOT_FOUND
+- DATABASE_NOT_READY
+- PROFILE_FAILED
+- INVALID_SQL
+- QUERY_TIMEOUT
+- QUERY_EXECUTION_FAILED
+- LLM_OUTPUT_INVALID
+- CLARIFICATION_REQUIRED
+- PREDICTION_FAILED
+
+
+17.17 Pagination and filtering
+
+Not needed for core MVP, but design endpoints with pagination now.
+
+Recommended endpoints:
+
+- GET /databases/{database_id}/query-logs?limit=50&offset=0
+- GET /databases/{database_id}/prediction-runs?limit=50&offset=0
+
+
+17.18 Seed/sample databases
+
+Decision:
+Create at least three sample DuckDB databases.
+
+Recommended demo databases:
+
+- ecommerce.duckdb
+- saas.duckdb
+- finance.duckdb
+
+Suggested tables for ecommerce.duckdb:
+
+- customers
+- orders
+- order_items
+- products
+- payments
+
+Suggested tables for saas.duckdb:
+
+- customers
+- subscriptions
+- usage_events
+- invoices
+- support_tickets
+
+Suggested tables for finance.duckdb:
+
+- customers
+- invoices
+- payments
+- disputes
+
+These should support demo queries like:
+
+- Which customers are likely to churn?
+- Which invoices are likely to be paid late?
+- Which products are likely to sell more next month?
+- Which customers are likely to buy again?
+
+
+17.19 Final locked MVP recommendation
+
+Build this version:
+
+Backend:
+FastAPI.
+
+Metadata database:
+SQLite with SQLAlchemy and Alembic.
+
+DuckDB input:
+Uploaded local .duckdb files only.
+
+Execution:
+Read-only, sandboxed worker process.
+
+LLM:
+OpenAI API with structured JSON outputs.
+
+Frontend:
+Streamlit demo UI.
+
+Auth:
+dev_user shortcut, but every API call still carries user_id.
+
+Database selection:
+Explicit database_id in every request.
+
+Refresh:
+Manual refresh, with stale detection warning.
+
+Prediction output:
+Structured ranked results plus narrative summary.
+
+Confidence:
+Deterministic evidence-quality policy plus LLM explanation.
+
+SQL validation:
+sqlglot parser plus strict forbidden-token gate.
+
+Core safety pattern:
+
+LLM proposes.
+Backend validates.
+Backend executes.
+Backend summarizes.
+LLM reasons.
+
+This removes the ambiguity and gives the team enough detail to start implementation.

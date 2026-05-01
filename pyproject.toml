@@ -1,0 +1,32 @@
+[project]
+name = "duckdb-predictive-agent"
+version = "0.1.0"
+description = "Safe predictive reasoning agent for DuckDB"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "alembic>=1.14.0",
+  "duckdb>=1.1.3",
+  "fastapi>=0.115.0",
+  "httpx>=0.28.0",
+  "openai>=1.54.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.6.0",
+  "python-multipart>=0.0.17",
+  "sqlalchemy>=2.0.36",
+  "sqlglot>=25.34.1",
+  "streamlit>=1.40.0",
+  "uvicorn>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

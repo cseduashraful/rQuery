@@ -1,0 +1,22 @@
+{
+  "default_provider": "openai",
+  "providers": {
+    "openai": {
+      "api_key_env": "OPENAI_API_KEY",
+      "task_planner_model": "gpt-4.1-mini",
+      "sql_explorer_model": "gpt-4.1-mini",
+      "final_predictor_model": "gpt-4.1",
+      "summary_model": "gpt-4.1-mini"
+    },
+    "local": {
+      "enabled": false,
+      "backend": "llama_cpp_or_vllm",
+      "task_planner_model": "local-planner",
+      "sql_explorer_model": "local-sql",
+      "final_predictor_model": "local-predictor",
+      "summary_model": "local-summary",
+      "model_path": ""
+    }
+  }
+}
+
