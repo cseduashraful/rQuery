@@ -102,6 +102,52 @@ When the provider is `local`, inference resolves models like this:
 2. if that folder exists and is non-empty, use it
 3. otherwise fall back to the original base path from `config/llm_config.json`
 
+## Running With Your Preferred LLM Config
+
+By default, the app reads:
+
+```bash
+config/llm_config.json
+```
+
+If that is the config you want, just edit it and run:
+
+```bash
+uvicorn backend.app.main:app --reload
+```
+
+If you want to use a different config file, set `LLM_CONFIG_PATH`:
+
+```bash
+export LLM_CONFIG_PATH=/absolute/path/to/my_llm_config.json
+uvicorn backend.app.main:app --reload
+```
+
+You can also put this in `.env`:
+
+```env
+LLM_CONFIG_PATH=/absolute/path/to/my_llm_config.json
+```
+
+To enable actual LLM calls, also set:
+
+```bash
+export ENABLE_LLM_CALLS=true
+```
+
+So a full example is:
+
+```bash
+export LLM_CONFIG_PATH=/absolute/path/to/my_llm_config.json
+export ENABLE_LLM_CALLS=true
+uvicorn backend.app.main:app --reload
+```
+
+Current caveats:
+
+- the main `/predict` path still uses heuristic fallback in parts of the current scaffold
+- local provider path resolution is implemented, but full local-model execution is not yet wired end to end
+
 ## Notes
 
 - The implementation is intentionally modular so the LLM provider, query sandbox, and profiling

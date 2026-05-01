@@ -143,6 +143,20 @@ For the local provider, model aliases such as `1b`, `3b`, and `8b` resolve throu
 1. `finetuned_llm/<size>` if present and non-empty
 2. otherwise the base path in `config/llm_config.json`
 
+Runtime config selection:
+
+- default LLM config path: `./config/llm_config.json`
+- override with environment variable: `LLM_CONFIG_PATH`
+- enable live LLM calls with: `ENABLE_LLM_CALLS=true`
+
+Example:
+
+```bash
+export LLM_CONFIG_PATH=/absolute/path/to/my_llm_config.json
+export ENABLE_LLM_CALLS=true
+uvicorn backend.app.main:app --reload
+```
+
 See also:
 
 - [FINETUNE_ENVIRONMENT.md](/Users/mdashrafulislam/paper_drafts/rQuery/docs/FINETUNE_ENVIRONMENT.md)
