@@ -138,6 +138,11 @@ The default config design also supports:
 The training config also supports an adapter-oriented setup where one shared base model is reused
 across roles and only role-specific adapters are updated during fine-tuning.
 
+For the local provider, model aliases such as `1b`, `3b`, and `8b` resolve through:
+
+1. `finetuned_llm/<size>` if present and non-empty
+2. otherwise the base path in `config/llm_config.json`
+
 See also:
 
 - [FINETUNE_ENVIRONMENT.md](/Users/mdashrafulislam/paper_drafts/rQuery/docs/FINETUNE_ENVIRONMENT.md)

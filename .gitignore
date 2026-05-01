@@ -17,3 +17,6 @@ uploads/
 output/
 dist/
 build/
+finetuned_llm/*
+!finetuned_llm/.gitkeep
+!finetuned_llm/README.md

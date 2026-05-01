@@ -95,6 +95,13 @@ The fine-tuning loop also supports adapter-oriented training with:
 - random role sampling per episode
 - role-specific exported JSONL files for later cluster training
 
+For local models, the repo now supports parameter-size aliases such as `1b`, `3b`, and `8b`.
+When the provider is `local`, inference resolves models like this:
+
+1. check `finetuned_llm/<size>` first
+2. if that folder exists and is non-empty, use it
+3. otherwise fall back to the original base path from `config/llm_config.json`
+
 ## Notes
 
 - The implementation is intentionally modular so the LLM provider, query sandbox, and profiling

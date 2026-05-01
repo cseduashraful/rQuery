@@ -19,6 +19,11 @@ class LLMClient:
         provider_name = name or self.config.default_provider
         return self.config.providers[provider_name]
 
+    def resolved_model_for_role(self, task_type: str, provider_name: Optional[str] = None) -> str:
+        provider_key = provider_name or self.config.default_provider
+        provider = self.provider(provider_key)
+        return provider.resolved_model_for_role(task_type, provider_key)
+
     def generate_json(
         self,
         task_type: str,
@@ -29,10 +34,10 @@ class LLMClient:
         if not self.settings.enable_llm_calls:
             raise RuntimeError("LLM calls are disabled. Enable them via configuration.")
 
-        provider = self.provider(provider_name)
-        model_name = provider.model_for_role(task_type)
+        provider_key = provider_name or self.config.default_provider
+        model_name = self.resolved_model_for_role(task_type, provider_key)
 
-        if (provider_name or self.config.default_provider) == "local":
+        if provider_key == "local":
             raise NotImplementedError(
                 "Local LLM execution is configuration-ready but not yet implemented."
             )

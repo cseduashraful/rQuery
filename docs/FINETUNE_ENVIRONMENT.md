@@ -150,6 +150,19 @@ This makes it easy to:
 - resume fine-tuning from the last checkpoint
 - evaluate one adapter without disturbing the others
 
+Inside this repository, the runtime also reserves:
+
+```text
+finetuned_llm/
+  1b/
+  3b/
+  8b/
+  70b/
+```
+
+The local provider resolves a parameter size alias by checking `finetuned_llm/<size>` first. If no
+fine-tuned copy exists there, it falls back to the configured base model path.
+
 ## Time-Budgeted Fine-Tuning
 
 Your desired workflow of “fine-tune for one hour” is very reasonable.
@@ -193,4 +206,3 @@ Use:
 
 This keeps the basic app environment small while still supporting your intended local-LLM and
 incremental fine-tuning workflow.
-

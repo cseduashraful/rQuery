@@ -20,6 +20,8 @@ class ProviderConfig(BaseModel):
     summary_model: Optional[str] = None
     critic_model: Optional[str] = None
     model_path: Optional[str] = None
+    model_paths: dict[str, str] = {}
+    finetuned_model_root: Optional[str] = "./finetuned_llm"
 
     @model_validator(mode="after")
     def validate_model_resolution(self) -> "ProviderConfig":
@@ -44,6 +46,23 @@ class ProviderConfig(BaseModel):
         if role == "critic":
             return self.critic_model or self.shared_base_model or self.final_predictor_model or self.task_planner_model or ""
         raise KeyError(f"Unknown LLM role: {role}")
+
+    def resolve_local_model_path(self, model_ref: str) -> str:
+        finetuned_root = Path(self.finetuned_model_root or "./finetuned_llm")
+        finetuned_candidate = finetuned_root / model_ref
+        if finetuned_candidate.exists() and any(finetuned_candidate.iterdir()):
+            return str(finetuned_candidate.resolve())
+        if model_ref in self.model_paths:
+            return self.model_paths[model_ref]
+        if self.model_path:
+            return self.model_path
+        return model_ref
+
+    def resolved_model_for_role(self, role: str, provider_name: str) -> str:
+        model_ref = self.model_for_role(role)
+        if provider_name == "local":
+            return self.resolve_local_model_path(model_ref)
+        return model_ref
 
 
 class LLMConfig(BaseModel):
