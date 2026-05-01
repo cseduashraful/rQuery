@@ -34,6 +34,20 @@ uvicorn backend.app.main:app --reload
 streamlit run frontend/streamlit_app.py
 ```
 
+If you plan to run mostly local LLM inference, use:
+
+```bash
+conda env create -f environment.local-inference.yml
+conda activate duckdb-predictive-agent-local-inference
+```
+
+If you plan to run actual adapter fine-tuning jobs, use:
+
+```bash
+conda env create -f environment.finetune.yml
+conda activate duckdb-predictive-agent-finetune
+```
+
 ## Fine-Tuning Loop
 
 The repository now includes a solver-critic fine-tuning scaffold focused on improving the task
@@ -88,3 +102,5 @@ The fine-tuning loop also supports adapter-oriented training with:
 - The local LLM path is configuration-driven and can be filled in later.
 - Full environment notes, including PyTorch and local-LLM guidance, are in
   [docs/ENVIRONMENT.md](/Users/mdashrafulislam/paper_drafts/rQuery/docs/ENVIRONMENT.md).
+- The heavier local-inference and adapter fine-tuning environment story is in
+  [docs/FINETUNE_ENVIRONMENT.md](/Users/mdashrafulislam/paper_drafts/rQuery/docs/FINETUNE_ENVIRONMENT.md).

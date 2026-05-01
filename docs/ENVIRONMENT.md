@@ -1,7 +1,16 @@
 # Environment Requirements
 
-This project runs well in a Conda environment. The simplest path is to use the provided
-`environment.yml`.
+This project runs well in Conda environments. The lightest path is to use `environment.yml`, but
+there are now separate files for local inference and real fine-tuning too.
+
+## Environment Files
+
+- `environment.yml`
+  Lightweight app/runtime/scaffold environment
+- `environment.local-inference.yml`
+  For mostly local LLM inference with a stored base model plus adapters
+- `environment.finetune.yml`
+  For actual adapter fine-tuning jobs
 
 ## Recommended Baseline
 
@@ -25,7 +34,7 @@ conda activate duckdb-predictive-agent
 
 ## Core Python Packages
 
-These are required for the current MVP:
+These are required for the current lightweight app/runtime scaffold:
 
 - `alembic`
 - `duckdb`
@@ -44,8 +53,8 @@ These are required for the current MVP:
 
 ## PyTorch
 
-`torch` is not required for the current OpenAI-backed MVP path, but it is included in the Conda
-environment so the project is ready for future local-LLM work.
+`torch` is not required for the pure OpenAI-backed path, but it is included in the Conda
+environments so the project is ready for local-LLM inference and future fine-tuning work.
 
 Current `environment.yml` choice:
 
@@ -76,35 +85,22 @@ dependencies:
 PyTorch on Apple Silicon usually works through the standard Conda or pip install, using MPS at
 runtime where supported. In that case you can remove `cpuonly` and install `pytorch` alone.
 
-## Optional Local-LLM Extras
+## Local Inference And Fine-Tuning Packages
 
-These are not required yet, but you will likely want some of them when you wire in a local model:
+If you plan to run mostly local LLM inference, `transformers`-style packages are usually needed.
 
-- `transformers`
-- `accelerate`
-- `sentencepiece`
-- `safetensors`
-- `protobuf`
-- `llama-cpp-python`
-- `vllm` for Linux/NVIDIA deployments
+Those are included in:
 
-Recommended install examples:
+- `environment.local-inference.yml`
+- `environment.finetune.yml`
 
-```bash
-pip install transformers accelerate sentencepiece safetensors
-```
+The fine-tuning environment also includes:
 
-For `llama-cpp-python`:
+- `datasets`
+- `peft`
+- `trl`
 
-```bash
-pip install llama-cpp-python
-```
-
-Notes:
-
-- `vllm` is usually a Linux/NVIDIA-oriented dependency and is not recommended as a default in the
-  shared Conda file.
-- `llama-cpp-python` is often the simplest local path for a single-machine setup.
+Use the dedicated files instead of overloading the light baseline environment.
 
 ## System Tools
 
@@ -142,6 +138,10 @@ The default config design also supports:
 The training config also supports an adapter-oriented setup where one shared base model is reused
 across roles and only role-specific adapters are updated during fine-tuning.
 
+See also:
+
+- [FINETUNE_ENVIRONMENT.md](/Users/mdashrafulislam/paper_drafts/rQuery/docs/FINETUNE_ENVIRONMENT.md)
+
 ## Build And Run
 
 Run the API:
@@ -178,6 +178,6 @@ python scripts/run_finetune_loop.py --config config/training/relbench_finetune_c
 
 Use `environment.yml` as the default shared team environment.
 
-When you later add a real local LLM backend such as a Llama 70B path, create one additional file
-such as `environment.local-llm.yml` instead of overloading the baseline environment. That keeps the
-OpenAI-backed MVP lightweight while still making heavy local inference setups reproducible.
+Use the dedicated environment files instead of overloading the baseline environment. That keeps the
+app/runtime scaffold lightweight while still making heavy local inference and cluster fine-tuning
+setups reproducible.

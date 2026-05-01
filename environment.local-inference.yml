@@ -1,0 +1,31 @@
+name: duckdb-predictive-agent-local-inference
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - pip
+  - sqlite
+  - requests>=2.32
+  - pytest>=8.3
+  - pytorch
+  - cpuonly
+  - pip:
+      - alembic>=1.14.0
+      - duckdb>=1.1.3
+      - fastapi>=0.115.0
+      - httpx>=0.28.0
+      - openai>=1.54.0
+      - pydantic>=2.10.0
+      - pydantic-settings>=2.6.0
+      - python-multipart>=0.0.17
+      - sqlalchemy>=2.0.36
+      - sqlglot>=25.34.1
+      - streamlit>=1.40.0
+      - uvicorn>=0.32.0
+      - transformers>=4.46.0
+      - accelerate>=1.1.0
+      - sentencepiece>=0.2.0
+      - safetensors>=0.4.5
+      - protobuf>=5.28.0
+
