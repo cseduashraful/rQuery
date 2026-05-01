@@ -134,6 +134,14 @@ Optional future variables for local backends may include:
 - `LOCAL_LLM_PORT`
 - `LOCAL_LLM_MODEL_PATH`
 
+The default config design also supports:
+
+- one fine-tuned planner model
+- one shared base model for the other inference roles
+
+The training config also supports an adapter-oriented setup where one shared base model is reused
+across roles and only role-specific adapters are updated during fine-tuning.
+
 ## Build And Run
 
 Run the API:

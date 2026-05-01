@@ -3,7 +3,8 @@ Project Specification: Solver-Critic Fine-Tuning Plan for DuckDB Predictive Agen
 1. Goal
 
 Build a self-improving training and evaluation loop for the DuckDB Predictive Agent, with the
-initial focus on improving the task planner.
+initial focus on improving role-specific behavior through adapters attached to one shared base
+model.
 
 The system should:
 
@@ -18,20 +19,47 @@ The system should:
 8. If the prompt was insufficient, request additional evidence types.
 9. Allow the solver or explorer to fetch that additional evidence.
 10. Rebuild the prompt and retry prediction.
-11. Store the full trajectory for later planner fine-tuning.
+11. Store the full trajectory for later role-specific adapter fine-tuning.
 
-The main training target in phase 1 is the task planner, not the final predictor.
+The system should support one shared base model with separate adapters for:
+
+- task planner
+- SQL explorer
+- final predictor
+- critic
+
+The main phase-1 emphasis can still be the task planner, but the mechanism should support the
+other roles too.
 
 
 2. Core design principle
 
-Do not directly fine-tune the planner from final-task failure alone.
+Do not directly fine-tune a role from final-task failure alone.
 
 Instead use this logic:
 
-- Wrong final answer does not always imply wrong planner.
+- Wrong final answer does not always imply the target role was responsible.
 - The critic must distinguish planner failure from final predictor failure.
-- Planner updates should be driven by prompt sufficiency and evidence-gathering quality.
+- Role updates should be driven by structured responsibility signals.
+- Only the selected role adapter should be updated in one training episode.
+- The shared base model and all other adapters remain fixed during that episode.
+
+
+2.1 Adapter-based training mechanism
+
+The preferred fine-tuning mechanism is:
+
+- one shared base model
+- one adapter per role
+- random role sampling during training
+- role-specific exported training data
+
+This allows the system to:
+
+- load one model family at inference time
+- activate a role-specific adapter per step
+- improve one role without damaging the others
+- avoid the cost of serving several unrelated full models
 
 
 3. Roles
@@ -121,22 +149,28 @@ This distinction is essential because:
 For one benchmark task:
 
 1. Load database and ground-truth task.
-2. Run solver to produce initial task plan.
-3. Run explorer to gather initial evidence.
-4. Run prompt builder to build final prompt.
-5. Run final predictor to produce answer.
-6. Compare answer with ground truth using benchmark metric.
-7. Run critic on prompt, answer, and ground truth.
-8. If critic says prompt was insufficient:
+2. Randomly choose one trainable role for this episode:
+   - task_planner
+   - sql_explorer
+   - final_predictor
+   - critic
+3. Activate the selected role adapter while keeping the shared base model and other adapters fixed.
+4. Run solver to produce initial task plan.
+5. Run explorer to gather initial evidence.
+6. Run prompt builder to build final prompt.
+7. Run final predictor to produce answer.
+8. Compare answer with ground truth using benchmark metric.
+9. Run critic on prompt, answer, and ground truth.
+10. If critic says prompt was insufficient:
    - request additional evidence categories
    - run explorer again to fetch more evidence
    - rebuild prompt
    - rerun final predictor
-9. Stop when:
+11. Stop when:
    - prompt is sufficient, or
    - max refinement rounds reached, or
    - no new evidence can be fetched safely
-10. Store full trajectory.
+12. Store full trajectory together with target role and target adapter metadata.
 
 
 6. Critic output schema
@@ -260,28 +294,61 @@ Store:
 - refined prediction
 - final benchmark score
 - stop reason
+- target role selected for the episode
+- target adapter selected for the episode
+- shared base model name
+
+
+9.1 Role-aware training artifacts
+
+The system should export role-specific training files such as:
+
+- task_planner_training_examples.jsonl
+- sql_explorer_training_examples.jsonl
+- final_predictor_training_examples.jsonl
+- critic_training_examples.jsonl
+
+These files are intended for later cluster-side adapter training jobs.
 
 
 10. Fine-tuning target
 
-Phase 1 fine-tuning target:
+The mechanism should support all four role adapters:
 
-- task planner only
+- task planner
+- SQL explorer
+- final predictor
+- critic
+
+However, a recommended rollout order is:
+
+10.1 Phase 1
+
+- task planner adapter first
 
 Reason:
 
 - planner output is structured
 - planner errors are easier to supervise than full final predictions
-- critic feedback can be converted into planner-improvement signals
+- critic feedback converts naturally into planner-improvement signals
+
+10.2 Phase 2
+
+- SQL explorer adapter
+
+10.3 Phase 3
+
+- final predictor adapter
+- critic adapter
 
 
 11. Training data creation strategy
 
-The system should automatically create planner training data from stored trajectories.
+The system should automatically create role-specific training data from stored trajectories.
 
 11.1 Positive examples
 
-Use planner outputs from runs where:
+Use role outputs from runs where:
 
 - prompt was judged sufficient, and
 - benchmark score was strong, or
@@ -289,14 +356,14 @@ Use planner outputs from runs where:
 
 11.2 Negative or weak examples
 
-Use planner outputs from runs where:
+Use role outputs from runs where:
 
 - prompt was judged insufficient, or
-- critic had high planner responsibility score
+- critic assigned high responsibility to the target role
 
 11.3 Derived improved targets
 
-The system may create revised planner targets by combining:
+The system may create revised role targets by combining:
 
 - original user question
 - schema summary
@@ -304,7 +371,14 @@ The system may create revised planner targets by combining:
 - critic wrong-assumptions list
 - best-performing refined trajectory
 
-This revised target becomes a better planner-training label.
+Examples:
+
+- planner target -> revised task JSON
+- explorer target -> revised query plan JSON
+- predictor target -> improved final answer JSON
+- critic target -> improved critique JSON
+
+This revised target becomes a better adapter-training label for the selected role.
 
 
 12. Fine-tuning methods
@@ -313,17 +387,17 @@ Recommended order:
 
 12.1 Supervised fine-tuning
 
-Train planner on:
+Train the selected role adapter on:
 
-- successful planner outputs
-- critic-improved planner targets
+- successful role outputs
+- critic-improved role targets
 
 12.2 Preference optimization
 
 For the same input, compare:
 
-- planner output A
-- planner output B
+- role output A
+- role output B
 
 Prefer the one that led to:
 
@@ -337,8 +411,19 @@ Later, use a reward signal composed of:
 
 - final benchmark score
 - prompt sufficiency
-- planner responsibility score
+- target-role responsibility score
 - query efficiency
+
+
+12.4 Adapter isolation rule
+
+In one training episode:
+
+- update only the selected role adapter
+- freeze the shared base model
+- freeze all other role adapters
+
+This is the most important training-mechanism rule in the preferred design.
 
 
 13. Metrics
@@ -354,6 +439,9 @@ The system should measure:
 - token count of final prompt
 - success rate before refinement
 - success rate after refinement
+- role-specific win rate by adapter
+- role sampling distribution
+- adapter-specific regression rate
 
 
 14. Safety constraints
@@ -378,13 +466,16 @@ Suggested new modules:
 - training/planner_dataset_builder.py
 - training/evaluator.py
 - training/fine_tune_runner.py
+- training/adapter_registry.py
 
 Suggested new core functions:
 
 critic_judge_prompt_sufficiency(prompt, answer, ground_truth) -> CriticReport
 translate_evidence_requests_to_queries(task, evidence_requests, memory) -> list[SQLQuery]
 integrate_additional_evidence(packet, new_evidence) -> EvidencePacket
-build_planner_training_examples(trajectories) -> list[TrainingExample]
+build_role_training_examples(trajectories, role) -> list[TrainingExample]
+select_training_role(config) -> str
+resolve_adapter_for_role(role) -> AdapterHandle
 
 
 16. Benchmark scope
@@ -415,14 +506,18 @@ The fine-tuning plan implementation is successful if:
 4. The explorer can fetch critic-requested evidence through safe SQL.
 5. The prompt builder can integrate new evidence sections without breaking prompt structure.
 6. The system can rerun prediction after refinement.
-7. Planner training examples can be generated automatically from trajectories.
-8. The phase 1 trainer can fine-tune only the planner model.
+7. Role-specific training examples can be generated automatically from trajectories.
+8. The trainer can randomly choose a trainable role per episode.
+9. The selected role maps to one role adapter on top of a shared base model.
+10. One role adapter can be trained while all other adapters and the base model remain fixed.
 
 
 18. Most important design decision
 
-Do not train the planner from answer correctness alone.
+Do not train a role from answer correctness alone.
 
-Train the planner from evidence sufficiency signals.
+Train the selected role from evidence sufficiency and responsibility signals.
+
+And do it through one shared base model plus role-specific adapters.
 
 That is the central idea behind this fine-tuning plan.

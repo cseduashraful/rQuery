@@ -58,10 +58,28 @@ The loop:
 1. randomly picks a configured dataset
 2. randomly picks a task from that dataset
 3. randomly picks an entity from the task train split
-4. builds a leakage-safe planner context
-5. gathers pre-cutoff evidence
-6. evaluates the final answer against ground truth
-7. stores trajectories and planner-training examples in `output/training/`
+4. randomly picks a trainable role such as `task_planner`, `sql_explorer`, `final_predictor`, or `critic`
+5. builds a leakage-safe planner context
+6. gathers pre-cutoff evidence
+7. evaluates the final answer against ground truth
+8. stores trajectories and role-specific adapter training examples in `output/training/`
+
+## Model Configuration
+
+The config layer supports a practical deployment pattern where:
+
+- `task_planner_model` points to a fine-tuned planner model
+- `shared_base_model` is reused for `sql_explorer`, `final_predictor`, `summary`, and optionally `critic`
+
+That lets you specialize the planner without paying the cost of loading unrelated models for every
+other role.
+
+The fine-tuning loop also supports adapter-oriented training with:
+
+- one shared base model name
+- one adapter per role
+- random role sampling per episode
+- role-specific exported JSONL files for later cluster training
 
 ## Notes
 

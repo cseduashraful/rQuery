@@ -30,12 +30,7 @@ class LLMClient:
             raise RuntimeError("LLM calls are disabled. Enable them via configuration.")
 
         provider = self.provider(provider_name)
-        model_name = {
-            "task_planner": provider.task_planner_model,
-            "sql_explorer": provider.sql_explorer_model,
-            "final_predictor": provider.final_predictor_model,
-            "summary": provider.summary_model or provider.task_planner_model,
-        }[task_type]
+        model_name = provider.model_for_role(task_type)
 
         if (provider_name or self.config.default_provider) == "local":
             raise NotImplementedError(

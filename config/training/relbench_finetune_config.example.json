@@ -23,12 +23,26 @@
     "random_seed": 7,
     "episodes": 5,
     "max_refinement_rounds": 2,
-    "trainer_user_id": "trainer_user"
+    "trainer_user_id": "trainer_user",
+    "trainable_roles": ["task_planner", "sql_explorer", "final_predictor", "critic"],
+    "role_sampling_weights": {
+      "task_planner": 1.0,
+      "sql_explorer": 1.0,
+      "final_predictor": 1.0,
+      "critic": 1.0
+    }
   },
   "trainer": {
     "mode": "jsonl_export",
     "output_dir": "./output/training",
     "min_examples_before_emit": 1,
-    "hook_command": null
+    "hook_command": null,
+    "base_model_name": "shared-base-model",
+    "adapters": {
+      "task_planner": {"adapter_name": "task-planner-adapter"},
+      "sql_explorer": {"adapter_name": "sql-explorer-adapter"},
+      "final_predictor": {"adapter_name": "final-predictor-adapter"},
+      "critic": {"adapter_name": "critic-adapter"}
+    }
   }
 }

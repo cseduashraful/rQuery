@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,6 +42,23 @@ class FinetuneLoopConfig(BaseModel):
     episodes: int = 10
     max_refinement_rounds: int = 2
     trainer_user_id: str = "trainer_user"
+    trainable_roles: list[str] = Field(
+        default_factory=lambda: ["task_planner", "sql_explorer", "final_predictor", "critic"]
+    )
+    role_sampling_weights: dict[str, float] = Field(default_factory=dict)
+
+    def choose_role(self) -> str:
+        if not self.trainable_roles:
+            raise ValueError("trainable_roles cannot be empty.")
+        weights = [self.role_sampling_weights.get(role, 1.0) for role in self.trainable_roles]
+        rng = random.Random(self.random_seed)
+        return rng.choices(self.trainable_roles, weights=weights, k=1)[0]
+
+
+class RoleAdapterConfig(BaseModel):
+    adapter_name: str
+    adapter_path: Optional[str] = None
+    enabled: bool = True
 
 
 class PlannerTrainerConfig(BaseModel):
@@ -48,6 +66,20 @@ class PlannerTrainerConfig(BaseModel):
     output_dir: str = "./output/training"
     min_examples_before_emit: int = 1
     hook_command: Optional[str] = None
+    base_model_name: str = "shared-base-model"
+    adapters: dict[str, RoleAdapterConfig] = Field(
+        default_factory=lambda: {
+            "task_planner": RoleAdapterConfig(adapter_name="task-planner-adapter"),
+            "sql_explorer": RoleAdapterConfig(adapter_name="sql-explorer-adapter"),
+            "final_predictor": RoleAdapterConfig(adapter_name="final-predictor-adapter"),
+            "critic": RoleAdapterConfig(adapter_name="critic-adapter"),
+        }
+    )
+
+    def adapter_for_role(self, role: str) -> RoleAdapterConfig:
+        if role not in self.adapters:
+            raise ValueError(f"No adapter configured for role '{role}'.")
+        return self.adapters[role]
 
 
 class FinetuneConfig(BaseModel):

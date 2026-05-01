@@ -274,6 +274,85 @@ This loop also creates strong training data for the planner. Each trajectory can
 These traces can support supervised fine-tuning, preference optimization, or reward-based training
 for the planner without relying on fully manual labels.
 
+\section{Adapter-Based Fine-Tuning}
+The preferred fine-tuning mechanism for this project is no longer a single monolithic model update.
+Instead, the training system assumes:
+
+\begin{itemize}
+\item one shared base model
+\item one adapter for \texttt{task\_planner}
+\item one adapter for \texttt{sql\_explorer}
+\item one adapter for \texttt{final\_predictor}
+\item one adapter for \texttt{critic}
+\end{itemize}
+
+This gives the project a practical compromise between serving cost and specialization. The base
+model remains shared across roles, while the role-specific behavior lives in adapters that can be
+trained independently.
+
+\subsection*{Why Adapters Fit This System}
+Adapters are a strong fit here because the four main agent roles share the same broad reasoning
+capability but differ in objective:
+
+\begin{itemize}
+\item the planner structures the task
+\item the explorer chooses safe evidence-gathering queries
+\item the predictor synthesizes the final answer
+\item the critic judges sufficiency and requests follow-up evidence
+\end{itemize}
+
+Using adapters allows one role to improve without causing broad regressions in the others.
+
+\subsection*{Role-Sampled Training Episodes}
+The fine-tuning loop should sample one training role per episode. A typical episode now becomes:
+
+\begin{enumerate}
+\item randomly choose a dataset
+\item randomly choose a task from that dataset
+\item randomly choose an entity from the train split
+\item randomly choose a trainable role
+\item activate that role's adapter conceptually for the episode
+\item run the full trajectory with the normal solver, explorer, predictor, and critic stages
+\item assign responsibility using the critic and benchmark score
+\item export a role-specific training example for the selected adapter
+\end{enumerate}
+
+The shared base model and all non-selected adapters are treated as fixed for that training episode.
+
+\subsection*{Role-Specific Training Artifacts}
+The implementation should export separate JSONL files for each role, for example:
+
+\begin{itemize}
+\item \texttt{task\_planner\_training\_examples.jsonl}
+\item \texttt{sql\_explorer\_training\_examples.jsonl}
+\item \texttt{final\_predictor\_training\_examples.jsonl}
+\item \texttt{critic\_training\_examples.jsonl}
+\end{itemize}
+
+These files are intended for later cluster-side training jobs and should include metadata about:
+
+\begin{itemize}
+\item target role
+\item target adapter
+\item shared base model
+\item dataset and task identity
+\item entity identity
+\item benchmark score
+\end{itemize}
+
+\subsection*{Operational Consequence}
+At inference time, the ideal production setup is:
+
+\begin{itemize}
+\item load one shared base model
+\item activate the planner adapter for planning
+\item switch to the explorer adapter for SQL generation
+\item switch to the predictor adapter for final answering
+\item switch to the critic adapter for critique
+\end{itemize}
+
+This preserves modular behavior without paying the full cost of loading multiple unrelated models.
+
 \section{Profiler Enrichment}
 Useful profiler upgrades include:
 
@@ -316,6 +395,7 @@ are:
 \item stronger sandboxing for production deployment
 \item richer sample datasets and integration fixtures
 \item critic-guided online refinement and planner improvement loops
+\item cluster-side adapter training and adapter switching at inference time
 \end{itemize}
 
 \chapter{Conclusion}

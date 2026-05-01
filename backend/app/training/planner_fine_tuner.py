@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from backend.app.training.config import PlannerTrainerConfig
 
@@ -13,9 +14,19 @@ class PlannerFineTuner:
         self.output_dir = Path(trainer_config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def maybe_run_hook(self) -> dict:
+    def maybe_run_hook(self, role_counts: dict[str, int]) -> dict[str, Any]:
+        active_roles = [role for role, count in role_counts.items() if count > 0]
+        active_adapters = {
+            role: self.trainer_config.adapter_for_role(role).adapter_name for role in active_roles
+        }
         if not self.trainer_config.hook_command:
-            return {"trainer_mode": self.trainer_config.mode, "hook_executed": False}
+            return {
+                "trainer_mode": self.trainer_config.mode,
+                "hook_executed": False,
+                "base_model_name": self.trainer_config.base_model_name,
+                "active_roles": active_roles,
+                "active_adapters": active_adapters,
+            }
         result = subprocess.run(
             shlex.split(self.trainer_config.hook_command),
             cwd=str(self.output_dir),
@@ -26,8 +37,10 @@ class PlannerFineTuner:
         return {
             "trainer_mode": self.trainer_config.mode,
             "hook_executed": True,
+            "base_model_name": self.trainer_config.base_model_name,
+            "active_roles": active_roles,
+            "active_adapters": active_adapters,
             "return_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
         }
-
