@@ -48,6 +48,53 @@ conda env create -f environment.finetune.yml
 conda activate duckdb-predictive-agent-finetune
 ```
 
+## Terminal RelBench Evaluation
+
+You can also run the agent directly from the terminal on a RelBench regression task.
+The runner will:
+
+1. load the chosen RelBench dataset and task
+2. materialize a DuckDB database from the full RelBench database
+3. iterate over the test split in batches
+4. enforce per-row cutoff times in the SQL evidence queries so no rows beyond the query time reach the prompt
+5. report test MAE
+
+List available datasets:
+
+```bash
+python scripts/run_relbench_inference.py --list-datasets
+```
+
+List tasks for one dataset:
+
+```bash
+python scripts/run_relbench_inference.py --list-tasks rel-hm
+```
+
+Run one regression task:
+
+```bash
+export ENABLE_LLM_CALLS=true
+python scripts/run_relbench_inference.py \
+  --dataset rel-hm \
+  --task item-sales \
+  --batch-size 8
+```
+
+Useful options:
+
+- `--duckdb-path output/relbench/rel-hm.duckdb`
+- `--output-dir output/relbench_eval`
+- `--limit 100`
+- `--rebuild-duckdb`
+- `--question-template "Using only information before {cutoff_time}, predict {target_col} for {entity_col}={entity_id}."`
+
+Outputs:
+
+- `output/relbench/<dataset>.duckdb`
+- `output/relbench_eval/<dataset>__<task>__predictions.jsonl`
+- `output/relbench_eval/<dataset>__<task>__summary.json`
+
 ## Fine-Tuning Loop
 
 The repository now includes a solver-critic fine-tuning scaffold focused on improving the task
@@ -162,7 +209,7 @@ uvicorn backend.app.main:app --reload
 Current caveats:
 
 - the main `/predict` path still uses heuristic fallback in parts of the current scaffold
-- local provider path resolution is implemented, but full local-model execution is not yet wired end to end
+- local provider path resolution is implemented, and the terminal RelBench runner can use the configured local or hosted final predictor
 
 ## Notes
 

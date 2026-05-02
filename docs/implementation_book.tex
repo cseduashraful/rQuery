@@ -463,6 +463,40 @@ python scripts/run_adapter_training.py --config config/training/relbench_finetun
 
 This command performs actual adapter fine-tuning for the selected role using the exported examples.
 
+\section{Terminal RelBench Evaluation}
+The repository also exposes a terminal-first evaluation path for RelBench regression tasks:
+
+\begin{lstlisting}[style=code,language=bash]
+python scripts/run_relbench_inference.py --dataset rel-hm --task item-sales --batch-size 8
+\end{lstlisting}
+
+This path is intentionally separate from the web application so that benchmark runs can be launched
+directly on a workstation or cluster job. The runner:
+
+\begin{enumerate}
+\item loads the chosen RelBench dataset and task through the official package
+\item materializes a DuckDB database from the full relational database
+\item iterates over the masked test split
+\item uses each test row's query timestamp as the cutoff time
+\item executes evidence-gathering SQL with temporal filters so rows beyond that cutoff do not reach the prompt
+\item records one prediction per test entity and reports mean absolute error
+\end{enumerate}
+
+\subsection*{Leakage Discipline}
+The most important rule in this path is that the hidden target column from the test split must not
+enter the question template, planner prompt, evidence packet, or final predictor prompt. To
+enforce this, the runner:
+
+\begin{itemize}
+\item formats user questions only from masked test-row fields and explicit safe variables
+\item rejects any question template that references the hidden target column
+\item keeps ground-truth labels separate until after prediction time
+\item applies per-query cutoff filters when fetching temporal evidence from DuckDB
+\end{itemize}
+
+This is stricter than only censoring the database at the dataset test timestamp. It protects
+against leakage for later evaluation rows whose query time is after the first test timestamp.
+
 \section{Configuration}
 Copy the example config file and adapt it:
 

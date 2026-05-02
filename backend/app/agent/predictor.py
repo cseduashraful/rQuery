@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.app.agent.prompts import build_prediction_prompt
+from backend.app.agent.prompts import build_regression_prediction_prompt
 from backend.app.llm.client import LLMClient
 from typing import Optional
 
@@ -17,6 +18,18 @@ PREDICTION_SCHEMA = {
     "additionalProperties": True,
 }
 
+REGRESSION_PREDICTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "predicted_value": {"type": "number"},
+        "summary": {"type": "string"},
+        "confidence": {"type": "string"},
+        "reasoning": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["predicted_value", "summary", "confidence", "reasoning"],
+    "additionalProperties": True,
+}
+
 
 class FinalPredictor:
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
@@ -25,4 +38,25 @@ class FinalPredictor:
     def predict(self, evidence_packet: dict) -> tuple[str, dict]:
         prompt = build_prediction_prompt(evidence_packet)
         result = self.llm_client.generate_json("final_predictor", prompt, PREDICTION_SCHEMA)
+        return prompt, result
+
+
+class RegressionPredictor:
+    def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
+        self.llm_client = llm_client or LLMClient()
+
+    def predict_regression(
+        self,
+        evidence_packet: dict,
+        target_column: str,
+        entity_id: str,
+        cutoff_time: str,
+    ) -> tuple[str, dict]:
+        prompt = build_regression_prediction_prompt(
+            packet=evidence_packet,
+            target_column=target_column,
+            entity_id=entity_id,
+            cutoff_time=cutoff_time,
+        )
+        result = self.llm_client.generate_json("final_predictor", prompt, REGRESSION_PREDICTION_SCHEMA)
         return prompt, result

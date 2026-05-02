@@ -39,3 +39,20 @@ def build_prediction_prompt(packet: dict) -> str:
         f"EVIDENCE PACKET:\n{json.dumps(packet, indent=2)}"
     )
 
+
+def build_regression_prediction_prompt(
+    packet: dict,
+    target_column: str,
+    entity_id: str,
+    cutoff_time: str,
+) -> str:
+    return (
+        "You are a predictive analyst for a regression benchmark.\n"
+        "Use only the evidence provided.\n"
+        "Do not assume access to any rows after the cutoff time.\n"
+        "Return valid JSON only.\n\n"
+        f"TARGET COLUMN:\n{target_column}\n\n"
+        f"ENTITY ID:\n{entity_id}\n\n"
+        f"CUTOFF TIME:\n{cutoff_time}\n\n"
+        f"EVIDENCE PACKET:\n{json.dumps(packet, indent=2)}"
+    )
